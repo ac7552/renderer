@@ -94,7 +94,7 @@ export const SCENES = Object.keys(LOOKS)
 // Contact shading's reach (metres; about a hand's width) and strength.
 const AO = { radius: 0.22, falloff: 1, intensity: 3.2 }
 
-export const DRAPED_STYLES = ["tee", "longsleeve", "sweatshirt", "hoodie", "zip", "bomber", "shirt", "shortshirt", "dress", "polo", "rugby", "tank", "sweater", "shortknit", "cardigan", "coat"]
+export const DRAPED_STYLES = ["tailored", "tee", "longsleeve", "sweatshirt", "hoodie", "zip", "bomber", "shirt", "shortshirt", "dress", "polo", "rugby", "tank", "sweater", "shortknit", "cardigan", "coat"]
 
 export const STATUS_COLORS = {
   good: "#3fa672", tight: "#de4f37", short: "#de4f37", loose: "#4f63f0", long: "#4f63f0", unknown: "#9a9ca3"
@@ -843,7 +843,7 @@ export class FittingStage {
   wearCollars() {
     // (A shirt dress has a shirt's collar too.)
     // A shirt's or polo's collar; the photo's word on it outranks the style's (cut.photo.collar, photo_fit.js).
-    const collared = item => { const seen = item.cut?.photo?.collar; return seen ? seen === "shirt" : ["shirt", "shortshirt", "polo", "rugby"].includes(item.style) || Boolean(item.cut?.collar) }
+    const collared = item => { const seen = item.cut?.photo?.collar; return seen ? seen === "shirt" : ["shirt", "shortshirt", "polo", "rugby", "tailored"].includes(item.style) || Boolean(item.cut?.collar) }
     const slots = ["top", "outer"].filter(slot => this.slots[slot] && collared(this.slots[slot].top.item))
     const ready = slots.filter(slot => { const d = this.slots[slot]; return d.shown && d.final && !d.posing })
     // With the photo re-draped onto the shirt, the collar takes the colour of the cloth at the photo's top.
