@@ -13,6 +13,8 @@ import * as THREE from "three"
 import { legSlices } from "lib/garments/accessories"
 
 export const HULL_CELLS = 112
+// The shoes open enough to be carved through where the side photo shows the backdrop (lasts.js's families).
+const OPEN_FAMILIES = new Set(["sandal", "slide", "pump", "flat"])
 
 // body, frame, side ("L"/"R"): the foot to stand on; outline: shoeSide's reading of the side photo; views:
 // shoeView readings (kind top/back/front, with shoes[].silhouette) for the other photos; style: the last
@@ -132,6 +134,17 @@ export function hullGeometry(body, frame, side, outline, views, style, { depth =
   // rounded from it (a circle's chord at that distance in, capped by the width above), so a stem a
   // centimetre deep is a centimetre wide and a cuff is as full as it is tall.
   const sideIn = new Uint8Array(nz * ny)
+  // An open shoe (a sandal, a slide, a pump, a flat) carved through where its side photo shows the backdrop
+  // (shoeSide's open mask: between straps, a fisherman's cut-outs, under a slingback): those openings go
+  // right through, the far side mirroring the near one, and the foot shows in them (stage.js's coverFeet).
+  const openShoe = OPEN_FAMILIES.has(style.family) && outline.open && outline.w ? outline : null
+  const openAt = openShoe ? (u, y) => {
+    const xs = openShoe.toeRight ? openShoe.left + u * (openShoe.right - openShoe.left) : openShoe.right - u * (openShoe.right - openShoe.left)
+    const ys = floorLine - (y - floor) / metres
+    const px = Math.min(openShoe.w - 1, Math.max(0, Math.round(xs * openShoe.w))), py = Math.min(openShoe.h - 1, Math.max(0, Math.round(ys * openShoe.h)))
+    return openShoe.open[py * openShoe.w + px] === 1
+  } : null
+  let carved = 0
   for (let k = 0; k < nz; k++) {
     const z = z0 + (k + 0.5) * cell, u = (z - origin) / span
     if (u < 0 || u > 1) continue
@@ -144,6 +157,7 @@ export function hullGeometry(body, frame, side, outline, views, style, { depth =
         const zb = origin + lerp(ends.back, 1 - rowUp) * span, zf = origin + lerp(ends.front, 1 - rowUp) * span
         if (z < zb || z > zf) continue
       }
+      if (openAt && !openAt(u, y)) { carved++; continue }
       sideIn[k * ny + j] = 1
     }
   }
@@ -219,7 +233,7 @@ export function hullGeometry(body, frame, side, outline, views, style, { depth =
   geometry.addGroup(0, sole.length, 0)
   geometry.addGroup(sole.length, upper.length, 1)
   geometry.computeVertexNormals()
-  geometry.userData.photo = { floor, back: origin, length: span, metres, top: u => floor + (floorLine - topAt(u)) * metres, within, centreX, widest, hull: { views: (views ?? []).map(v => v.kind), relief: Boolean(depth), cells: [nx, ny, nz], widths, sole: [+uL.toFixed(3), +uR.toFixed(3)], span: +span.toFixed(3), length: +length.toFixed(3), height: +height.toFixed(3), topRows: topShoe ? soften(topShoe.silhouette).filter((_, i, a) => i % Math.ceil(a.length / 12) === 0).map(r => r && r.map(v => +v.toFixed(3))) : null } }
+  geometry.userData.photo = { floor, back: origin, length: span, metres, top: u => floor + (floorLine - topAt(u)) * metres, within, centreX, widest, open: carved > 0, hull: { carved, views: (views ?? []).map(v => v.kind), relief: Boolean(depth), cells: [nx, ny, nz], widths, sole: [+uL.toFixed(3), +uR.toFixed(3)], span: +span.toFixed(3), length: +length.toFixed(3), height: +height.toFixed(3), topRows: topShoe ? soften(topShoe.silhouette).filter((_, i, a) => i % Math.ceil(a.length / 12) === 0).map(r => r && r.map(v => +v.toFixed(3))) : null } }
   return geometry
 }
 

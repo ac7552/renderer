@@ -1766,7 +1766,24 @@ export function shoeSide(data, w, h) {
   const { lab, bg, far } = cut
   const backdrop = new Uint8Array(w * h)
   for (let i = 0; i < w * h; i++) backdrop[i] = mask[i] && Math.abs(lab[3 * i] - bg[0]) <= far[0] && Math.hypot(lab[3 * i + 1] - bg[1], lab[3 * i + 2] - bg[2]) <= far[1] ? 1 : 0
-  for (const hole of pieces(backdrop, w, h)) if (hole.length < cut.garment.count * 0.06) for (const i of hole) mask[i] = 0
+  // And every hole the backdrop shows through, whatever its size, for an open shoe (a fisherman sandal's
+  // cut-outs, the gap between a sandal's straps and its sole), unless most of the shoe is the backdrop's
+  // colour (a white shoe on white): `open`, which hull.js carves an open shoe by.
+  let open = null
+  const holes = pieces(backdrop, w, h)
+  let backdropCount = 0
+  for (const hole of holes) backdropCount += hole.length
+  // (Told by the shoe's own colour, the median of what isn't the backdrop's, against the backdrop's.)
+  const own = [[], [], []]
+  for (let i = 0; i < w * h; i++) if (mask[i] && !backdrop[i]) for (let c = 0; c < 3; c++) own[c].push(lab[3 * i + c])
+  const mid = own.map(v => { v.sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 0 })
+  const likeBackdrop = Math.abs(mid[0] - bg[0]) <= far[0] * 2.5 && Math.hypot(mid[1] - bg[1], mid[2] - bg[2]) <= far[1] * 2.5
+  const openShare = backdropCount / Math.max(1, cut.garment.count)
+  if (!likeBackdrop && openShare < 0.85) {
+    open = mask.slice()
+    for (const hole of holes) for (const i of hole) open[i] = 0
+  }
+  for (const hole of holes) if (hole.length < cut.garment.count * 0.06) for (const i of hole) mask[i] = 0
   // The soft shadow the shoe casts on the backdrop, reached from outside (withoutShadow): under a heel's
   // arch it would put the sole on the floor; against the shoe's own colour (the median over it).
   {
@@ -1849,7 +1866,7 @@ export function shoeSide(data, w, h) {
     // Its colours, for telling the shop's other photos apart (see shoeView): the upper's and the sole's,
     // and up its heel's and its toe's ends (Lab, in VIEW_BANDS from the floor up).
     colours: shoeColours(lab, mask, w, h, { left, right, high, low, toeRight, soleThick }),
-    mask, w, h
+    mask, open: open && open.map((v, i) => v & mask[i]), openShare: +openShare.toFixed(3), w, h
   }
 }
 

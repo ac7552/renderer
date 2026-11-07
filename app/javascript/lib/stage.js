@@ -482,7 +482,7 @@ export class FittingStage {
   // Shoes and socks, lofted round the mannequin's feet and legs as they stand (see accessories.js), then hung
   // on the calves' bones so they move with the legs. Rebuilt when the body or what's worn changes.
   dressFeet(shoes, socks) {
-    const key = JSON.stringify([shoes && [shoes.style, shoes.name, shoes.words, shoes.color, shoes.sole, shoes.fabric, shoes.shoeSide, (shoes.shoeViews ?? []).map(v => v.kind), Boolean(shoes.shoeDepth)], socks && [socks.style, socks.color],
+    const key = JSON.stringify([shoes && [shoes.style, shoes.name, shoes.words, shoes.color, shoes.sole, shoes.fabric, shoes.shoeSide && { ...shoes.shoeSide, open: shoes.shoeSide.open ? shoes.shoeSide.openShare ?? 1 : null }, (shoes.shoeViews ?? []).map(v => v.kind), Boolean(shoes.shoeDepth)], socks && [socks.style, socks.color],
       this.fitted.scale, this.fitted.influences, this.bodyType])
     if (key === this.feet.key) return
     this.feet.key = key
@@ -572,7 +572,7 @@ export class FittingStage {
     // The mannequin's foot is rigid and its toes thick, and a shoe keeps its photo's shape; where the foot
     // would show through the shoe, under its topline (and a little over it at the toe box), the skin isn't
     // drawn. An open sandal shows the whole foot.
-    this.coverFeet(body, frame, shoes && last.family !== "sandal" ? this.feet.shoes : null)
+    this.coverFeet(body, frame, shoes && (last.family !== "sandal" || Object.values(this.feet.shoes ?? {}).some(m => m?.geometry?.userData?.photo?.open)) ? this.feet.shoes : null)
     // A heel: the foot pitched toes down by the heel's height (see accessories.js's heelRise), the body
     // lifted to keep the toe on the floor, and a stem built under each heel as it then stands.
     if (heeled && !photoShaped) {
@@ -615,8 +615,10 @@ export class FittingStage {
           if (u < -0.02 || u > 1.02) continue
           // Hidden under the shoe's topline, where its walls rise round the foot (hull.js); over the toe box
           // (the front 40%) the rigid toes may stand proud of a low shoe, and are hidden with shoe beneath.
-          let hidden = y <= p.top(Math.min(1, Math.max(0, u)))
-          if (!hidden && u > 0.6) for (let d = 0.004 * s; !hidden && d <= 0.03 * s; d += 0.004 * s) hidden = p.within(x, y - d, z)
+          // An open shoe carved through its openings (hull.js): the skin is hidden only where the shoe is, so
+          // the foot shows through a sandal's straps and a slingback's back.
+          let hidden = p.open ? p.within(x, y, z) || p.within(x, y - 0.006 * s, z) : y <= p.top(Math.min(1, Math.max(0, u)))
+          if (!hidden && !p.open && u > 0.6) for (let d = 0.004 * s; !hidden && d <= 0.03 * s; d += 0.004 * s) hidden = p.within(x, y - d, z)
           if (hidden) { cover[i] = 1; break }
         }
       }
