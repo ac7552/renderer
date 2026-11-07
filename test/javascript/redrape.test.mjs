@@ -8,7 +8,7 @@ const { clothMask, layoutPhoto } = await import("lib/garments/redrape")
 // A store photo, 240 across by 300 down, on a light grey backdrop: a dark garment hanging with its body in
 // the middle, a sleeve either side (apart from the body below the shoulder, merged with it above), and, when
 // asked, a black hanger: a thin hook above and its shoulders over the garment's.
-function photo({ hanger = false, flat = false } = {}) {
+function photo({ hanger = false, flat = false, greyRight = false } = {}) {
   const w = 240, h = 300, data = new Uint8ClampedArray(4 * w * h)
   const bg = [236, 236, 236], cloth = [60, 40, 30], hook = [12, 12, 12]
   const put = (x, y, c) => data.set([...c, 255], 4 * (y * w + x))
@@ -20,6 +20,8 @@ function photo({ hanger = false, flat = false } = {}) {
     // the body below row 90; joined to it above, at the shoulder).
     if (y >= 60 && y <= 230 && ((x >= 40 && x <= 60) || (x >= 180 && x <= 200))) c = cloth
     if (!flat && y >= 60 && y < 90 && x >= 40 && x <= 200) c = cloth
+    // A colour-blocked garment: its right part, body and sleeve, a light grey near the backdrop's shadow.
+    if (greyRight && c === cloth && x >= 120 && x <= 170) c = [196, 196, 198]
     // The backdrop's soft shadow just under the hem: a little darker than the backdrop, not the cloth.
     if (y > 260 && y <= 266 && x >= 70 && x <= 170) c = [214, 214, 214]
     put(x, y, c)
@@ -40,6 +42,15 @@ test("the cloth mask leaves out the backdrop's shadow under the hem", () => {
   assert.equal(found.box.left, 40)
   assert.equal(found.box.right, 200)
   assert.deepEqual(found.bg, [236, 236, 236])
+})
+
+test("a light panel beside dark cloth stays cloth", () => {
+  const { data, w, h } = photo({ greyRight: true })
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  assert.equal(found.box.right, 200)
+  for (const x of [125, 150, 165, 185, 195]) assert.equal(found.mask[150 * w + x], 1, `x ${x}`)
+  assert.equal(found.box.bottom, 260, "the shadow under the hem still isn't")
 })
 
 test("a hanger's hook and shoulders are cut off the top of the photo", () => {

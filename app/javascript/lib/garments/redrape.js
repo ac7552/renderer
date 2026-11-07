@@ -30,6 +30,24 @@ export { HangerDrape } from "lib/garments/hanger"
 // of the widest, above the garment), then the rows below that are mostly the hook's colour (its shoulders).
 // Returns { mask, box: { left, right, top, bottom }, bg: the backdrop's colour, hung: whether there was a hook }
 // or null.
+// How wide a band of backdrop-like pixels at the edge of a dark garment can be and still be its shadow (a
+// share of the photo's width); wider, it's a light panel of the garment's own.
+const SHADOW_REACH = 0.1
+// Whether pixels [from, to) of a row (at offset row) are a panel of the garment near the backdrop's colour
+// rather than its shadow: a shadow fades, so its quarter by the backdrop (outerLeft: the stretch's left end)
+// is lighter than its quarter by the garment by more than a tenth of the backdrop's brightness; a panel is
+// even across. Nor is it the backdrop itself.
+function wideLight(data, row, from, to, bg, outerLeft) {
+  const n = to - from
+  if (n < 4) return false
+  const mean = (a, b) => { let t = 0; for (let x = a; x < b; x++) { const i = 4 * (row + x); t += data[i] + data[i + 1] + data[i + 2] } return t / Math.max(1, b - a) }
+  const q = Math.max(1, n >> 2)
+  const left = mean(from, from + q), right = mean(to - q, to), all = mean(from, to)
+  const back = bg[0] + bg[1] + bg[2]
+  const fade = outerLeft ? left - right : right - left
+  return fade < back * 0.1 && Math.abs(all - back) > 12
+}
+
 export function clothMask(data, w, h) {
   const found = garmentMask(data, w, h)
   if (!found) return null
@@ -60,10 +78,22 @@ export function clothMask(data, w, h) {
     }
     if (start >= 0) runs.push([start, last])
     let a0 = w, b0 = -1
+    const clothIn = (a, b) => { for (let x = a; x <= b; x++) if (isCloth(y * w + x)) return true; return false }
     for (const [a, b] of runs) {
       let first = -1, lastCloth = -1
       for (let x = a; x <= b; x++) if (isCloth(y * w + x)) { if (first < 0) first = x; lastCloth = x }
+      // (A run that is all such a panel, beside cloth in the same row: a white sleeve laid apart from a dark
+      // body. Not a row of its own: the shadow under a hem.)
+      if (first < 0 && apart >= 24 && b - a >= Math.max(3, Math.round(w * SHADOW_REACH)) && runs.some(([c, d]) => c !== a && clothIn(c, d)) && wideLight(data, y * w, a, b + 1, bg, (a + b) / 2 < w / 2)) { first = a; lastCloth = b }
       if (first < 0) continue
+      // A light or grey panel at a run's end (a varsity's white sleeves, a colour-blocked hoodie's grey half, a
+      // cream yoke) reads like the backdrop or its shadow beside dark cloth; a shadow is a narrow soft band, so
+      // a stretch wider than SHADOW_REACH that is all shadow-like is cloth and stays.
+      if (apart >= 24) {
+        const reach = Math.max(3, Math.round(w * SHADOW_REACH))
+        if (first - a >= reach && wideLight(data, y * w, a, first, bg, true)) first = a
+        if (b - lastCloth >= reach && wideLight(data, y * w, lastCloth + 1, b + 1, bg, false)) lastCloth = b
+      }
       out.fill(1, y * w + first, y * w + lastCloth + 1)
       a0 = Math.min(a0, first); b0 = Math.max(b0, lastCloth)
     }
@@ -1037,6 +1067,9 @@ function shadowOf(r, g, b, R, G, B) {
   const k = (r * R + g * G + b * B) / (R * R + G * G + B * B)
   return k > 0.25 && k < 1 && Math.hypot(r - k * R, g - k * G, b - k * B) < 0.15 * top
 }
+// The share of a garment far from its middle colour past which it's colour-blocked, and not calmed.
+const CALM_BLOCKED = 0.2
+
 function calmFolds(image, mask, box, sw, sh) {
   const w = box.w, h = box.h, d = image.data
   const sums = [0, 1, 2].map(() => new Float32Array(sw * sh)), on = new Float32Array(sw * sh)
@@ -1061,6 +1094,22 @@ function calmFolds(image, mask, box, sw, sh) {
     if (Math.hypot(d[i] - broad[0][k] / wt, d[i + 1] - broad[1][k] / wt, d[i + 2] - broad[2][k] / wt) > FAR) cell[1]++
   }
   const counted = cells.filter(([n]) => n > 20)
+  // Nor a colour-blocked garment (a hoodie half grey, a cream yoke over navy): much of its broad colour (folds
+  // and fading averaged out) far from its middle colour, and no shadow of it. Its broad colour would smear one
+  // block into the next.
+  {
+    const px = [[], [], []]
+    for (let y = box.top; y <= box.bottom; y += 4) for (let x = box.left; x <= box.right; x += 4) {
+      if (!mask[y * w + x]) continue
+      const k = (y >> 2) * sw + (x >> 2), wt = weight[k]
+      if (wt > 0) for (let c = 0; c < 3; c++) px[c].push(broad[c][k] / wt)
+    }
+    const n = px[0].length
+    const mid = px.map(v => v.slice().sort((a, b) => a - b)[v.length >> 1])
+    let apart = 0
+    for (let j = 0; j < n; j++) if (Math.hypot(px[0][j] - mid[0], px[1][j] - mid[1], px[2][j] - mid[2]) > FAR && !shadowOf(px[0][j], px[1][j], px[2][j], ...mid)) apart++
+    if (n && apart / n > CALM_BLOCKED) return false
+  }
   if (!counted.length || counted.filter(([n, far]) => far / n > CALM_PRINTED).length >= Math.ceil(counted.length * 0.6)) return false
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (!mask[y * w + x]) continue
