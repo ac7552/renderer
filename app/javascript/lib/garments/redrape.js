@@ -1015,7 +1015,64 @@ export function flatFieldImage(image, mask, box) {
     const relief = ref > 8 ? Math.max(-0.5, Math.min(0.5, L / ref - 1)) : 0
     d[i + 3] = Math.round(128 + relief * 200)
   }
+  // (Whether it was: a plain garment's sleeves are then laid plain, see trustPieces.)
+  image.calm = calmFolds(image, mask, box, sw, sh)
   return image
+}
+
+// The folds the garment hung in for its photo taken out of plain cloth (step 4 of the plan): laid point for
+// point on a drape that hangs otherwise, their light and shade became swirls and streaks (a nylon jacket
+// marbled, white denim streaked grey, a hoodie's front in waves). Where the cloth is near its own colour
+// there (within FAR of a wide blur of it, a quarter of the garment's width: an ombré or a spray-dyed fade
+// keeps its colour), it takes that colour, times its fine relief (its brightness against the narrow blur:
+// the weave, the heather, a seam's shadow, within ±20%); what's far from it (a graphic, lettering, a pocket's
+// trim) is left as photographed. The page's own drape then shades it. Not on an all-over print or stripes
+// (more than CALM_PRINTED of the cloth off its colour over most of the garment), whose pattern is the cloth.
+const CALM_PRINTED = 0.25
+// A deep shadow in a coloured cloth (the gap between a sleeve and the body, under a pocket): the cloth's own
+// hue, darker by up to 75%. Not on grey, black or white cloth, where a dark print is that too.
+function shadowOf(r, g, b, R, G, B) {
+  const top = Math.max(R, G, B), low = Math.min(R, G, B)
+  if (top < 30 || (top - low) / top < 0.18) return false
+  const k = (r * R + g * G + b * B) / (R * R + G * G + B * B)
+  return k > 0.25 && k < 1 && Math.hypot(r - k * R, g - k * G, b - k * B) < 0.15 * top
+}
+function calmFolds(image, mask, box, sw, sh) {
+  const w = box.w, h = box.h, d = image.data
+  const sums = [0, 1, 2].map(() => new Float32Array(sw * sh)), on = new Float32Array(sw * sh)
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+    if (!mask[y * w + x]) continue
+    const k = (y >> 2) * sw + (x >> 2), i = 4 * (y * w + x)
+    sums[0][k] += d[i]; sums[1][k] += d[i + 1]; sums[2][k] += d[i + 2]; on[k]++
+  }
+  const r = Math.max(2, Math.round(0.25 * (box.right - box.left) / 4))
+  const weight = boxBlur(on, sw, sh, r)
+  const broad = sums.map(c => boxBlur(c, sw, sh, r))
+  // How much of the cloth is far from its broad colour, in each of a 3 by 3 grid over it: a print all over
+  // (most of the cells) isn't calmed; a big graphic (a few cells, a tee's chest) is, round it.
+  const cells = Array.from({ length: 9 }, () => [0, 0])
+  const bw = Math.max(1, box.right - box.left + 1), bh = Math.max(1, box.bottom - box.top + 1)
+  for (let y = box.top; y <= box.bottom; y += 4) for (let x = box.left; x <= box.right; x += 4) {
+    if (!mask[y * w + x]) continue
+    const k = (y >> 2) * sw + (x >> 2), i = 4 * (y * w + x), wt = weight[k]
+    if (!(wt > 0)) continue
+    const cell = cells[Math.min(2, Math.floor((3 * (y - box.top)) / bh)) * 3 + Math.min(2, Math.floor((3 * (x - box.left)) / bw))]
+    cell[0]++
+    if (Math.hypot(d[i] - broad[0][k] / wt, d[i + 1] - broad[1][k] / wt, d[i + 2] - broad[2][k] / wt) > FAR) cell[1]++
+  }
+  const counted = cells.filter(([n]) => n > 20)
+  if (!counted.length || counted.filter(([n, far]) => far / n > CALM_PRINTED).length >= Math.ceil(counted.length * 0.6)) return false
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (!mask[y * w + x]) continue
+    const k = (y >> 2) * sw + (x >> 2), i = 4 * (y * w + x), wt = weight[k]
+    if (!(wt > 0)) continue
+    const R = broad[0][k] / wt, G = broad[1][k] / wt, B = broad[2][k] / wt
+    if (Math.hypot(d[i] - R, d[i + 1] - G, d[i + 2] - B) > FAR && !shadowOf(d[i], d[i + 1], d[i + 2], R, G, B)) continue
+    // (Its fine relief as the flat field wrote it: the alpha's height about 0.5.)
+    const fine = Math.min(1.2, Math.max(0.8, 1 + (d[i + 3] - 128) / 200))
+    d[i] = Math.min(255, R * fine); d[i + 1] = Math.min(255, G * fine); d[i + 2] = Math.min(255, B * fine)
+  }
+  return true
 }
 
 // Whether a photo shows cloth, not its backdrop, at a texture coordinate (u, v) of registerPhoto's: a cut-out
@@ -1202,6 +1259,101 @@ export function rigidPrints(top, uv, photo, which = 1) {
   return laid
 }
 
+// The photo laid straight (step 4 of the plan). Registered row by row, the photo bends wherever the hanging
+// shape and the photo's differ: a plaid's, a stripe's or a camo's lines read as waves, and plain cloth
+// gathers the photo's shadows (the dark gap between a sleeve and the body) into marbled swirls. Each
+// pattern piece is laid by one affine map of its own instead (its pattern, flat, to where the registration
+// put it, fitted by least squares), so the photo lies on it at its own scale and lines that are straight on
+// the cloth stay straight; it gives way to the registration within a few centimetres of the piece's edges,
+// where the photo's outline must meet the cloth's. Not a photo of it worn (its shape is the body's).
+// uv: registerPhoto's, changed in place; photo: loadPhotoForRedrape's; which: 1 (front) or 3 (back). Returns
+// how many pieces were laid straight.
+export function straightPattern(top, uv, photo, which = 1) {
+  const { cloth } = top
+  if (photo.worn) return 0
+  const W = photo.canvas.width, H = photo.canvas.height
+  const pieces = new Map()
+  for (let i = 0; i < cloth.points.length; i++) {
+    // (The body's pieces and a pair of pants' legs: a sleeve is photographed folded flat, its two faces one
+    // over the other, which no one flat map of its pattern lays.)
+    if (uv[3 * i + 2] !== which || !/^(front|back)/.test(cloth.panels[cloth.panel[i]])) continue
+    const p = cloth.panel[i]
+    if (!pieces.has(p)) pieces.set(p, [])
+    pieces.get(p).push(i)
+  }
+  let laid = 0
+  for (const points of pieces.values()) {
+    if (points.length < 30) continue
+    const map = affineFit(points.map(i => cloth.points[i]), points.map(i => [uv[3 * i] * W, (1 - uv[3 * i + 1]) * H]))
+    if (!map) continue
+    for (const i of points) {
+      const t = Math.min(1, Math.max(0, ((cloth.toEdge?.[i] ?? 8) - STRAIGHT_EDGE[0]) / (STRAIGHT_EDGE[1] - STRAIGHT_EDGE[0])))
+      const w = STRAIGHT_MOST * t * t * (3 - 2 * t)
+      const [x, y] = map(cloth.points[i])
+      uv[3 * i] = (w * x + (1 - w) * uv[3 * i] * W) / W
+      uv[3 * i + 1] = 1 - (w * y + (1 - w) * (1 - uv[3 * i + 1]) * H) / H
+    }
+    laid++
+  }
+  return laid
+}
+// From this far in from a piece's edge (cm) to this, the straight map takes over from the registration, to
+// this share.
+const STRAIGHT_EDGE = [0.5, 3], STRAIGHT_MOST = 0.95
+
+// Every point laid on the cloth of its photo (step 7 of the plan: hem slits): a point the registration or the
+// straight map put just past the photo's outline (a hem's corner, a side seam's foot) took the backdrop there,
+// which showed as white slits at a hoodie's hem and down its sides. Each such point moves to the nearest
+// cloth pixel within OFF_CLOTH of the photo's width, a few pixels in. uv: changed in place; photos: { front,
+// back }. Returns how many points moved.
+export function keepOnCloth(top, uv, photos) {
+  let moved = 0
+  for (const [which, photo] of [[1, photos.front], [3, photos.back]]) {
+    if (!photo?.mask) continue
+    const W = photo.canvas.width, H = photo.canvas.height, mask = photo.mask
+    const reach = Math.max(4, Math.round(OFF_CLOTH * (photo.box.right - photo.box.left)))
+    const on = (x, y) => x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] === 1
+    for (let i = 0; i < uv.length / 3; i++) {
+      if (uv[3 * i + 2] !== which) continue
+      const x = Math.round(uv[3 * i] * W), y = Math.round((1 - uv[3 * i + 1]) * H)
+      if (on(x, y)) continue
+      let best = null
+      for (let r = 1; r <= reach && !best; r++) {
+        for (let d = -r; d <= r && !best; d++) for (const [dx, dy] of [[d, -r], [d, r], [-r, d], [r, d]]) if (on(x + dx, y + dy)) { best = [dx, dy]; break }
+      }
+      if (!best) continue
+      // A few pixels further in, past the outline's soft edge.
+      const len = Math.hypot(best[0], best[1]) || 1, inset = 3
+      let nx = x + best[0] + Math.round((best[0] / len) * inset), ny = y + best[1] + Math.round((best[1] / len) * inset)
+      if (!on(nx, ny)) { nx = x + best[0]; ny = y + best[1] }
+      uv[3 * i] = nx / W; uv[3 * i + 1] = 1 - ny / H
+      moved++
+    }
+  }
+  return moved
+}
+const OFF_CLOTH = 0.06
+
+// The affine map (x, y) -> (a x + b y + c, d x + e y + f) that best takes src points to dst, by least
+// squares; null when the points are too few or in a line.
+export function affineFit(src, dst) {
+  const n = src.length
+  if (n < 3) return null
+  let mx = 0, my = 0, ux = 0, uy = 0
+  for (let k = 0; k < n; k++) { mx += src[k][0]; my += src[k][1]; ux += dst[k][0]; uy += dst[k][1] }
+  mx /= n; my /= n; ux /= n; uy /= n
+  let sxx = 0, sxy = 0, syy = 0, ax = 0, ay = 0, bx = 0, by = 0
+  for (let k = 0; k < n; k++) {
+    const x = src[k][0] - mx, y = src[k][1] - my, X = dst[k][0] - ux, Y = dst[k][1] - uy
+    sxx += x * x; sxy += x * y; syy += y * y; ax += x * X; ay += y * X; bx += x * Y; by += y * Y
+  }
+  const det = sxx * syy - sxy * sxy
+  if (!(Math.abs(det) > 1e-9 * (sxx * syy + 1e-12))) return null
+  const a = (ax * syy - ay * sxy) / det, b = (ay * sxx - ax * sxy) / det
+  const d = (bx * syy - by * sxy) / det, e = (by * sxx - bx * sxy) / det
+  return ([x, y]) => [ux + a * (x - mx) + b * (y - my), uy + d * (x - mx) + e * (y - my)]
+}
+
 // A point's share of neighbours in a set, through the cloth's triangles (1 deep inside, about 0.5 at the edge).
 let neighbourCache = new WeakMap()
 function edgeWeight(cloth, i, set) {
@@ -1281,6 +1433,7 @@ export function trustPieces(top, uv, photos) {
   const allOver = front != null && (front > 0.5 || (back != null && front > 0.08 && back > 0.6 * front))
   const graphic = !allOver && front != null && front > 0.04
   const worn = Boolean(photos.front.worn)
+  const calm = Boolean(photos.front.flat?.calm) && !worn
   const plain = []
   // A pair (the two sleeves, cuffs, halves of a hood) goes together: one plain sleeve beside one printed one
   // looks more wrong than either.
@@ -1298,6 +1451,9 @@ export function trustPieces(top, uv, photos) {
     else if (name === "collar") reason = "band"
     else if (allOver) reason = null
     else if (/^sleeve/.test(name) && share > (worn ? 0.16 : 0.2)) reason = "sleeve"
+    // A plain garment's plain sleeves (no graphic on them): its calm cloth, not the sleeves as registered.
+    // Photographed folded flat along the body, they gathered its shadows into smears and swirls.
+    else if (/^sleeve/.test(name) && calm && share < 0.05) reason = "sleeve"
     else if (/^(cuff|waistband|collar|placket)/.test(name) && share > 0.5) reason = "band"
     else if (/^back/.test(name) && !photos.back && graphic) reason = "back"
     if (!reason) continue
@@ -1308,7 +1464,12 @@ export function trustPieces(top, uv, photos) {
     // the neck, its shadow included), the band takes the collar's colour across the top of the photo instead.
     let own = name === "collar" ? hangerless(stats[p].rgb, photos.front.cloth) : stats[p].rgb
     if (name === "collar" && (!own || hangerLike(...own.map(median).map(v => v * 0.6), photos.front.cloth))) own = topColour(photos.front) ?? stats[p].rgb
-    const target = reason === "band" ? own.map(median) : null
+    // A sleeve in a colour of its own (step 6 of the plan: a varsity's white leather sleeves, a colour-blocked
+    // sleeve): most of it near its own middle colour, far from the body's. It keeps that colour; laid with
+    // the body's, a varsity's white sleeves were drawn navy.
+    const middle = stats[p].rgb.map(median)
+    const contrast = reason === "sleeve" && ownColoured(stats[p].rgb, middle, photos.front.cloth)
+    const target = reason === "band" ? own.map(median) : contrast ? middle : null
     const source = reason === "back" || !photos.back || !/^back/.test(name) ? photos.front : photos.back
     const patch = plainPatch(source, target ?? source.cloth)
     if (!patch) continue
@@ -1316,6 +1477,15 @@ export function trustPieces(top, uv, photos) {
     plain.push(name)
   }
   return { plain, far, front, back, allOver }
+}
+
+// Whether a piece's pixels (rgb lists) are mostly one colour of their own (within FAR of their middle,
+// three in four of them) and that colour far from the cloth's.
+function ownColoured(rgb, middle, cloth) {
+  if (!cloth || !rgb[0].length || Math.hypot(middle[0] - cloth[0], middle[1] - cloth[1], middle[2] - cloth[2]) <= FAR) return false
+  let near = 0
+  for (let k = 0; k < rgb[0].length; k++) if (Math.hypot(rgb[0][k] - middle[0], rgb[1][k] - middle[1], rgb[2][k] - middle[2]) <= FAR) near++
+  return near >= 0.75 * rgb[0].length
 }
 
 // rgb ([[r...], [g...], [b...]]) less what's hangerLike; null when too little is left (it was mostly hanger).

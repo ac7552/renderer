@@ -1186,7 +1186,8 @@ export class DrapedTop {
     if (fold) fold.needsUpdate = true
     // The folds themselves, on the fine mesh (wrinkles.js), by the cloth's own fold wavelength: a solve over
     // the cloth, so not every frame while the cloth still moves (it's settled or settling by now).
-    if (this.fine && FOLDS_ON) {
+    // (Nor on padded cloth, a puffer's: its fill holds it out, and thin cloth's folds on it read as waves.)
+    if (this.fine && FOLDS_ON && this.surface !== "puffer") {
       const now = performance.now()
       if (!this.foldsAt || now - this.foldsAt > FOLDS_EVERY) {
         this.foldsAt = now

@@ -108,6 +108,36 @@ test("the flat field takes the photographer's gradient out and keeps the weave a
   assert.ok(data[4 * (100 * w + 10) + 3] < data[4 * (100 * w + 5) + 3] - 10)
 })
 
+test("plain cloth loses the folds it was photographed in, and keeps its graphic and its weave", async () => {
+  const { flatFieldImage } = await import("lib/garments/redrape")
+  // A 300 by 300 blue cloth with broad diagonal folds (a third darker in their troughs, every 40 pixels), a
+  // fine weave line every 6, and a white logo block in the middle.
+  const w = 300, h = 300, data = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h).fill(1)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const fold = 1 - 0.33 * (0.5 + 0.5 * Math.sin(((x + y) / 40) * Math.PI))
+    const weave = y % 6 === 0 ? 0.85 : 1
+    const logo = x >= 130 && x < 170 && y >= 130 && y < 160
+    data.set(logo ? [245, 245, 245, 255] : [Math.round(40 * fold * weave), Math.round(70 * fold * weave), Math.round(160 * fold * weave), 255], 4 * (y * w + x))
+  }
+  flatFieldImage({ data, width: w, height: h }, mask, { left: 0, right: w - 1, top: 0, bottom: h - 1, w, h })
+  const blue = (x, y) => data[4 * (y * w + x) + 2]
+  // Along a row (not a weave line), crest and trough come out within a few levels, where they were a third apart.
+  const row = Array.from({ length: 80 }, (_, k) => blue(20 + k, 31))
+  assert.ok(Math.max(...row) - Math.min(...row) < 20, `${Math.min(...row)}..${Math.max(...row)}`)
+  // The weave line is still darker than the rows beside it; the logo is still white.
+  assert.ok(blue(60, 30) < blue(60, 31) - 8)
+  assert.ok(data[4 * (145 * w + 150)] > 150)
+})
+
+test("an affine map fitted by least squares recovers a shear and two scales", async () => {
+  const { affineFit } = await import("lib/garments/redrape")
+  const src = [[0, 0], [10, 0], [10, 20], [0, 20], [5, 7], [3, 15]]
+  const f = ([x, y]) => [50 + 2 * x + 0.5 * y, 80 - 0.3 * x + 3 * y]
+  const t = affineFit(src, src.map(f))
+  for (const p of src) { const [x, y] = t(p), [X, Y] = f(p); assert.ok(Math.hypot(x - X, y - Y) < 1e-6) }
+  assert.equal(affineFit([[0, 0], [1, 1], [2, 2]], [[0, 0], [1, 1], [2, 2]]), null)
+})
+
 test("a similarity fitted by least squares recovers a move, turn and scale", async () => {
   const { similarity } = await import("lib/garments/redrape")
   const angle = 0.3, scale = 2.5, src = [[0, 0], [10, 0], [10, 5], [0, 5], [5, 2]]

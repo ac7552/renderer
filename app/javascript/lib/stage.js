@@ -22,7 +22,7 @@ import { hullGeometry } from "lib/garments/hull"
 import { BLANK_TEXTURE, PROJECTION, projectionUniforms, withProjection } from "lib/garments/fabric"
 import { meanRatio } from "lib/projection"
 import { DrapeBank, exportEntry, skinWith, warmStart } from "lib/garments/drape_bank"
-import { HangerDrape, collarColour, collarStrip, guardForeign, loadPhotoForRedrape, registerPhoto, rigidPrints, showsCloth, trustPieces } from "lib/garments/redrape"
+import { HangerDrape, collarColour, collarStrip, guardForeign, keepOnCloth, loadPhotoForRedrape, registerPhoto, rigidPrints, showsCloth, straightPattern, trustPieces } from "lib/garments/redrape"
 import { easeInOut, framing } from "lib/framing"
 import { StillFrames } from "lib/still"
 import { softenHead, weldedNormals } from "lib/mannequin_surface"
@@ -2157,8 +2157,11 @@ export class FittingStage {
         const { front, back } = d.redrapePhotos
         if (d.redrapeTimes) d.redrapeTimes.hung = performance.now() - d.redrapeTimes.asked
         const uv = registerPhoto(d.top, d.hanger.positions, front, back)
-        // Lettering and logos laid as one piece each, so the registration can't shear them.
+        // The photo laid straight, piece by piece, not bent row by row; then lettering and logos as one piece each.
+        d.straight = straightPattern(d.top, uv, front, 1) + (back ? straightPattern(d.top, uv, back, 3) : 0)
         d.rigid = rigidPrints(d.top, uv, front, 1) + (back ? rigidPrints(d.top, uv, back, 3) : 0)
+        // Nothing laid on the backdrop past the photo's outline (white slits at a hem's corners).
+        d.offCloth = keepOnCloth(d.top, uv, { front, back })
         // No skin, hair or backdrop on the cloth: a point that lands on any takes its neighbour's place.
         d.foreign = guardForeign(d.top, uv, { front, back })
         // Plain cloth on the pieces the photos don't really show (a hood, a sleeve that took the body's
