@@ -502,6 +502,7 @@ class GarmentImport
     # Capri and cropped pants end above the ankle.
     short = words.match?(/\bcapri/i) ? 0.72 : words.match?(/\bcropped\b/i) ? 0.88 : nil
     sizes = sizes.map { it.merge("inseam" => (it["inseam"] * short).round(1)) } if short && !inseam
+    sizes = shorts_as_photographed(sizes, product[:bottom_shape], product[:women]) if inseam && product.dig(:bottom_shape, :length) && !named_inseam?(product)
     sizes = as_photographed_legs(sizes, product[:bottom_shape]) if product[:bottom_shape]
     ChartReader::Chart.new(sizes:, unit: "cm", kind: "sizes", missing: [])
   end
@@ -518,11 +519,6 @@ class GarmentImport
       thigh = ((shape[:thigh] || 0) * size["waist"]).clamp(size["seat"] * 0.5, size["seat"] * 0.75).round(1)
       thigh = size["thigh"].clamp(size["seat"] * 0.5, size["seat"] * 0.75) if !shape[:thigh] && size["thigh"]
       shorts = size["inseam"] < 40
-      # Shorts as long as their photo shows them (a knee-length Bermuda isn't the usual 18 cm): the photo's
-      # length over the waist's flat width, less the rise.
-      if shorts && shape[:length]
-        size = size.merge("inseam" => (shape[:length] * size["waist"] / 2 * (1 - shape[:rise])).clamp(5, 40).round(1))
-      end
       least = [ shorts ? thigh * 0.9 : [ 18, thigh * 0.35 ].max, 80 ].min
       opening = (shape[:hem] * size["waist"]).clamp(least, 80).round(1)
       size.merge("leg_opening" => opening, "thigh" => [ thigh, opening ].max)
@@ -578,16 +574,54 @@ class GarmentImport
       { "name" => letter, "waist" => (waist + (risen || [ ease, 2 ].min)).round(1), "seat" => (hips + ease).round(1),
         "length" => (SKIRT_LENGTHS.fetch(cut[:length], 56) + (ALL_LETTERS.index(letter) - 3)).to_f }
     end
+    sizes = skirt_as_photographed(sizes, product[:bottom_shape]) if product.dig(:bottom_shape, :skirt)
     ChartReader::Chart.new(sizes:, unit: "cm", kind: "sizes", missing: [])
+  end
+
+  # A skirt as short as its photo shows it, when that's more than 12% shorter than its words say (a "midi"
+  # skort whose photo is to the knee, an A-line midi drawn to the floor): the photo's length over the waist's
+  # flat width times half the waist round, times PHOTO_SKIRT_LENGTH. Never longer: a knit mini's wide
+  # waistband read narrow, and its photo said knee length.
+  PHOTO_SKIRT_LENGTH = 0.8
+  # (Minis whose photos read 30 cm and less looked right at the usual 40: not shorter than 38.)
+  SKIRT_SHORTEST = 38
+  def skirt_as_photographed(sizes, shape)
+    sizes.map do |size|
+      read = PHOTO_SKIRT_LENGTH * shape[:length] * size["waist"] / 2
+      read < size["length"] * 0.88 ? size.merge("length" => [ read, SKIRT_SHORTEST ].max.round(1)) : size
+    end
   end
 
   # A pair of shorts' inseam (cm): the one its name gives ('2.5"', "7 inch"), or the usual (a women's
   # about 10 cm, a men's 18).
   def shorts_inseam(product)
-    inches = product.values_at(:name, :description).join(" ")[/(\d+(?:\.\d+)?)\s*(?:"|”|''|-?inch|in\b)(?:\s*inseam)?/i, 1]&.to_f
-    return (inches * 2.54).round(1) if inches&.between?(1.5, 14)
+    inches = named_inseam?(product)
+    return (inches * 2.54).round(1) if inches
 
     product[:women] ? 10.0 : 18.0
+  end
+
+  # The inseam in inches a pair of shorts' listing gives, or nil.
+  def named_inseam?(product)
+    inches = product.values_at(:name, :description).join(" ")[/(\d+(?:\.\d+)?)\s*(?:"|”|''|-?inch|in\b)(?:\s*inseam)?/i, 1]&.to_f
+    inches if inches&.between?(1.5, 14)
+  end
+
+  # Shorts as long as their photo shows them, when their listing names no inseam (a Bermuda, cut-offs, a
+  # "long short" weren't the usual 18 or 10 cm): their length from the waist is the photo's length over the
+  # waist's flat width (measureBottom's length) times half the waist round, times PHOTO_SHORTS_LENGTH (Kith's
+  # measured shorts: 0.74; long ones read short at that), less the rise (26 cm a women's, 30 a men's), not under 6 cm or 12, and only when
+  # that's more than 4 cm from the usual. Shorts laid with their legs touching read as a skirt; their length
+  # is read the same.
+  PHOTO_SHORTS_LENGTH = 0.78
+  def shorts_as_photographed(sizes, shape, women)
+    rise, least = women ? [ 26, 6 ] : [ 30, 12 ]
+    sizes.map do |size|
+      inseam = (PHOTO_SHORTS_LENGTH * shape[:length] * size["waist"] / 2 - rise).clamp(least, 40).round(1)
+      next size if (inseam - size["inseam"]).abs <= 4
+
+      size.merge("inseam" => inseam, "leg_opening" => [ size["leg_opening"], size["thigh"] * 0.95 ].max.round(1))
+    end
   end
 
   # Every letter size's usual measurements, when the shop has no chart: a guide, marked as guessed.
@@ -599,6 +633,9 @@ class GarmentImport
     # A top's own style ("tee"), else its kind's: a coat, whose name gives no top style, is a coat (cut long),
     # not the tee a top that names nothing is taken for.
     key = kind == "top" && USUAL.key?(style) ? style : usual_key(kind, style)
+    # A coat its photo or its name shows short (a short parka, a peacoat, an aviator): a jacket's length.
+    short = key == "coat" && short_coat?(product)
+    key = "jacket" if short
     key = "#{key}_women" if product[:women] && USUAL.key?("#{key}_women")
     base, step = USUAL.fetch(key)
     letters = Array(product[:sizes]).map { letter_of(it) }.compact.uniq
@@ -608,10 +645,69 @@ class GarmentImport
       n = ALL_LETTERS.index(letter) - 1   # XS is the base
       chest, shoulders, sleeve, length = base.zip(step).map { |b, d| (b + d * n).round(1) }
       { "name" => numbered ? "#{letter} (#{numbered[letter]})" : letter, "chest" => chest, "waist" => nil,
-        "shoulders" => shoulders, "sleeve" => sleeve, "length" => length }
+        "shoulders" => shoulders, "sleeve" => sleeve, "length" => (short ? length * SHORT_COAT_LENGTH : length).round(1) }
     end
+    usual = sizes
     sizes = cut_as_listed(sizes, product, kind) if product[:description]
+    sizes = photographed_length(usual, sizes, product, kind) if product.dig(:shape, :length)
     ChartReader::Chart.new(sizes:, unit: "cm", kind: "sizes", missing: [ "waist" ])
+  end
+
+  # A coat cut short: one its photo shows with its sleeves reaching down to its hem or past it (a long coat's
+  # end well above it: the Poiret coat's half way, a trench's three quarters), or one its name calls short, a
+  # peacoat, an aviator, a biker, a bomber or a jacket. Kith files short parkas, a pilot jacket and a mods coat
+  # under coats; drawn a coat's usual length, they came down to the knee.
+  SHORT_COAT_NAME = /\bshort\b|pea ?coat|\bcaban\b|aviator|\bbiker\b|bomber|\bmods\b|\bjacket\b/i
+  SHORT_COAT_LENGTH = 1.05   # a little longer than a jacket's usual length: a parka covers the seat
+  def short_coat?(product)
+    product[:name].to_s.sub(/\s+[-–]\s+[^-–]+\z/, "").match?(SHORT_COAT_NAME) || product.dig(:shape, :sleeve_down).to_f >= 0.88
+  end
+
+  # A top's length as its photo shows it, on its usual sizes (usual) as its words made them (sizes). The
+  # photo's length over its chest's width (photo_shape's length) is measured with its arms where the shop laid
+  # them: a T-shirt's out to the sides, so its chest reads true and its length can be taken from it (Kith's
+  # measured tees are 0.75 of the photo's length over half the chest round); a sweatshirt's, a shirt's and a
+  # jacket's along their sides, widening the chest they read, so their photos only say which way to go,
+  # against the photo's usual proportion for what they are (TYPICAL_PHOTO_LENGTH, the sample's medians).
+  # - Cropped by its words ("cropped", "shrunken", a baby tee's cut) though its photo shows it no shorter
+  #   than usual: its usual length (Alexander Wang's crewneck top, GUIZIO's zip hoodie, Brain Dead's shirt).
+  # - A T-shirt laid with its arms out (its sleeves hanging less than 0.7 of its length): from its photo,
+  #   both ways, when that's more than 12% from it, within 0.8 to 1.3 of usual (no further than it was).
+  # - A sweatshirt or hoodie whose photo is well shorter than usual: shorter by as much, to 0.8 of usual.
+  # - A jacket its name calls cropped whose photo agrees: 0.8 of usual.
+  TYPICAL_PHOTO_LENGTH = { tee: 1.65, sweat: 1.07, shirt: 1.35, jacket: 1.05 }.freeze
+  # How far past its usual proportion a cropped top's photo must be to take its usual length back: a
+  # sweatshirt's photo varies more with how its arms are laid (a cropped Acne zip hoodie's read 0.99).
+  UNCROP = { tee: 0.9, shirt: 0.9, sweat: 1.2 }.freeze
+  PHOTO_TEE_LENGTH = 0.75
+  def photographed_length(usual, sizes, product, kind)
+    family = length_family(product, kind) or return sizes
+    seen = product[:shape][:length].to_f
+    typical = TYPICAL_PHOTO_LENGTH.fetch(family)
+    named_crop = product[:name].to_s.match?(/crop(?:ped)?\b/i)
+    sizes.each_with_index.map do |size, i|
+      before = usual[i]["length"]
+      length = size["length"]
+      length = before if length < before * 0.97 && seen >= typical * UNCROP.fetch(family, 9)
+      if family == :tee && size["chest"] && product[:shape][:sleeve_down].to_f < 0.7
+        read = PHOTO_TEE_LENGTH * seen * size["chest"] / 2
+        length = read.clamp([ before * 0.8, length ].min, [ before * 1.3, length ].max) if (read / length - 1).abs > 0.12
+      end
+      length = [ length, before * [ seen / typical, 0.8 ].max ].min if family == :sweat && seen < typical * 0.85
+      length = before * 0.8 if family == :jacket && named_crop && seen < typical * 0.95
+      size.merge("length" => length.round(1))
+    end
+  end
+
+  def length_family(product, kind)
+    return :jacket if kind == "jacket"
+    return unless kind == "top"
+
+    case top_style_of(product)
+    when "tee", "polo", "tank", "rugby" then :tee
+    when "hoodie", "sweatshirt", "sweater" then :sweat
+    when "shirt" then :shirt
+    end
   end
 
   # The usual sizes for a listing with no chart: a top's or a jacket's, or pants by waist size or letter.
@@ -986,7 +1082,8 @@ class GarmentImport
     words.match?(PUFFER)
   end
 
-  def vest?(product) = product.values_at(:name, :category).join(" ").match?(/\bvests?\b/i) && !product.values_at(:name, :description).join(" ").match?(INSULATED)
+  def vest?(product) = vest_named?(product) && !product.values_at(:name, :description).join(" ").match?(INSULATED)
+  def vest_named?(product) = product.values_at(:name, :category).join(" ").match?(/\bvests?\b/i)
 
   def dress?(kind, product) = kind == "top" && top_style_of(product) == "dress" && !product.values_at(:name, :category).join(" ").match?(/skirts?\b|skort/i)
 
@@ -1001,11 +1098,11 @@ class GarmentImport
   ].freeze
 
   def bottom_style_of(product)
-    product.values_at(:name, :category).each do |words|
-      found = BOTTOM_STYLES.find { |_, pattern| words.to_s.match?(pattern) }&.first
-      return found if found
-    end
-    "trousers"
+    found = product.values_at(:name, :category).lazy.filter_map { |words| BOTTOM_STYLES.find { |_, pattern| words.to_s.match?(pattern) }&.first }.first || "trousers"
+    # Pants whose photo shows them shorts (CDG's "Men's Pant", filed under shorts): the photo's length is
+    # under 1.85 of the waist's flat width (pants' are 2.2, a capri's, and longer; shorts' 0.6 to 2.1).
+    return "shorts" if %w[trousers joggers jeans].include?(found) && product.dig(:bottom_shape, :length)&.<(1.85)
+    found
   end
 
   # A Shopify product's size names, from its "Size" option (or its variants' names).
@@ -1017,7 +1114,8 @@ class GarmentImport
 
   def garment(product, chart, kind:, source_url:)
     chart = shoulder_sleeves(plausible(chart, kind), product) unless kind == "trousers"
-    style = kind == "top" ? top_style_of(product) : kind == "trousers" ? bottom_style_of(product) : kind == "jacket" && vest?(product) ? "tank" : nil
+    # (A vest is drawn without sleeves, a padded one too: Kith's quilted Lorenzo vest had a puffer's.)
+    style = kind == "top" ? top_style_of(product) : kind == "trousers" ? bottom_style_of(product) : kind == "jacket" && vest_named?(product) ? "tank" : nil
     # Shorts' "inseam" past 40 cm is their whole length from the waist (Armani's charts): less the rise.
     if style == "shorts"
       sizes = chart.sizes.map { it["inseam"].to_f > 40 ? it.merge("inseam" => (it["inseam"] - (it["rise"] || (product[:women] ? 26 : 30))).round(1)) : it }
@@ -1073,7 +1171,10 @@ class GarmentImport
       **(kind == "top" && chart.kind == "sizes" && baby_tee?(product) ? { snug: true } : {}),
       **(skirt_cut ? { cut: skirt_cut } : fit_cut ? { cut: fit_cut } : {}),
       **(kind == "top" && product[:shape] && sleeves_sewn(product[:shape]) == :low ? { dropped: true } : {}),
-      **(style == "hoodie" && zipped?(product) ? { zip: true } : {}),
+      # (A cardigan that zips is drawn with its zip, not buttons: C.P. Company's zipped cardigan.)
+      **((style == "hoodie" || (kind == "jacket" && style_of(product, source_url) == "cardigan")) && zipped?(product) ? { zip: true } : {}),
+      # Its length taken from its photo (photographed_length, short_coat?): the page doesn't crop it again.
+      **(%w[top jacket coat].include?(kind) && chart.kind == "sizes" && product.dig(:shape, :length) ? { photo_length: true } : {}),
       **(bodysuit ? { bodysuit: true } : {}),
       **(%w[jacket coat].include?(kind) && puffer?(product) ? { puffer: true } : {}),
       chart: chart.as_json

@@ -412,7 +412,9 @@ export default class extends Controller {
           if (Object.keys(extra).length && ["short", "long"].includes(garment.cut?.sleeves)) { garment.cut = { ...(garment.cut ?? {}), ...extra }; refit = true }
         }
         // A cropped top on a guessed chart: its lengths from the photo, and the fit and drape done again.
-        const cropped = kind === "top" && !refit && garment.photoRole !== "on_model" ? croppedLengths(garment.chart, read?.look) : null
+        // (Not one the import already took its length from the photo for, garment.photo_length: this
+        // reading's proportion counts the sleeves in its width, and cropped women's tees of usual length.)
+        const cropped = kind === "top" && !refit && garment.photoRole !== "on_model" && !garment.photo_length ? croppedLengths(garment.chart, read?.look) : null
         if (cropped) {
           garment.chart = { ...garment.chart, sizes: cropped }
           refit = true

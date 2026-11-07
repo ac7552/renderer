@@ -253,7 +253,9 @@ export function measures(style, size, body, cut = null) {
     shoulders,
     length,
     sleeve,
-    hem: shaped ? Math.max(chest, shaped.hips) * 1.22 : Math.min(size.waist ?? chest, chest) * (hemBand ? 1 : 0.99),
+    // (An open hem, a tee's, is never cut much narrower round than the hips it falls to, or no wider than
+    // its chest: cut to a women's waist, a fitted tee's hem rode up over the hips and read as cropped.)
+    hem: shaped ? Math.max(chest, shaped.hips) * 1.22 : hemBand ? Math.min(size.waist ?? chest, chest) : Math.max(Math.min(size.waist ?? chest, chest), Math.min(chest, (body.hips ?? 0) * 0.92)) * 0.99,
     neckWidth,
     frontNeck: { stand: 6, shirtstand: 7, rib: 6, turtle: 5, crew: 8, hood: 8 }[style.collar] ?? 9,
     backNeck: 2,

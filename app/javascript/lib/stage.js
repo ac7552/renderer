@@ -2124,7 +2124,11 @@ export class FittingStage {
           d.redrapeSwapping = false
           if (this.slots[slot] !== d || !read) return
           d.redrapePhotos = read
-          if (d.redrapeState === "done") d.redrapeState = "hanging"
+          // (Done, its hanging was let go: laid on again from the shape it kept, hung no further.)
+          if (d.redrapeState === "done") {
+            d.hanger ??= { positions: d.hanging, done: true, advance: () => false, chosen: d.hangTrial?.chosen, scores: d.hangTrial?.scores }
+            d.redrapeState = "hanging"
+          }
           this.start()
         })
       }
