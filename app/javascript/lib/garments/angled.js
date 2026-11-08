@@ -129,12 +129,10 @@ export function projectAngled(geometry, angled, pose, flip = false) {
     const nx = mirror ? -normals[3 * i] : normals[3 * i]
     const facing = nx * dir[0] + normals[3 * i + 1] * dir[1] + normals[3 * i + 2] * dir[2]
     // Only what faces forward or up (the toe, the laces, the tongue): the side photo has the sides square on.
-    // And of the sole only its toe, square ahead (along its sides the other shoe, and the shadow between them,
-    // crowd round it in the photo); the side photo can't see that end at all.
+    // Not the sole: the other shoe, and the shadow between them, crowd round it in the photo.
     const ahead = Math.max(normals[3 * i + 2], normals[3 * i + 1])
     const above = shoe.positions[3 * i + 1] - shoe.floor
-    const upper = Math.max(smoothstep(SOLE_LOW, SOLE_HIGH, above), smoothstep(0.6, 0.85, normals[3 * i + 2]))
-    weight[i] = seen && onShoe ? smoothstep(0.15, 0.6, facing) * smoothstep(0.2, 0.55, ahead) * upper : 0
+    weight[i] = seen && onShoe ? smoothstep(0.15, 0.6, facing) * smoothstep(0.2, 0.55, ahead) * smoothstep(SOLE_LOW, SOLE_HIGH, above) : 0
   }
   return { uv, weight }
 }

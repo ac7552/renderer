@@ -31,9 +31,11 @@ const LACED = new Set(["runner", "court", "chunky", "hightop", "combat", "derby"
 const LACE_END = { runner: 0.66, court: 0.64, chunky: 0.64, hightop: 0.64, combat: 0.62, derby: 0.6 }
 const METAL_EYELETS = new Set(["combat"])
 
-// body, frame, side: the foot to stand on; outline: shoeSide's reading of the side photo; views: shoeView
-// readings (a view from above sets the plan); style: the last (lasts.js's: family, square, thick, toe).
-export function lastGeometry(body, frame, side, outline, views, style) {
+// The shoe's frame from the foot it stands on and its side photo, shared with the templates (templates.js): the
+// size (s), the floor, where it starts behind the heel (back) and its length (span), its middle across (centreX),
+// the photo's metres per unit of its height (metres), the topline, the bottom and the sole's top along it (u from
+// the heel, 0, to the toe, 1), the last's plan and the half width (from above when the shop shows it).
+export function lastFrame(body, frame, side, outline, views, style) {
   if (!outline?.top?.length || !outline?.bottom?.length) return null
   const s = (frame.top - frame.floor) / 1.76
   const floor = frame.floor, thick = (style.thick ?? 0.007) * s
@@ -93,6 +95,15 @@ export function lastGeometry(body, frame, side, outline, views, style) {
     const seen = fromAbove?.(u)
     return seen != null && u > 0.04 && u < 0.96 ? Math.min(planned * 1.3, Math.max(planned * 0.8, seen)) : planned
   }
+  return { s, floor, thick, back, front, span, centreX, metres, floorLine, yTop, yBottom, ySole, ball, plan, halfAt, fromAbove }
+}
+
+// body, frame, side: the foot to stand on; outline: shoeSide's reading of the side photo; views: shoeView
+// readings (a view from above sets the plan); style: the last (lasts.js's: family, square, thick, toe).
+export function lastGeometry(body, frame, side, outline, views, style) {
+  const f = lastFrame(body, frame, side, outline, views, style)
+  if (!f) return null
+  const { s, floor, thick, back, span, centreX, metres, yTop, yBottom, ySole, plan, halfAt, fromAbove } = f
   const family = style.family ?? "court"
   const n = ROUND[family] ?? 2.8
   // A lace-up's opening ends where its collar does (the topline still near its highest, read from the photo),

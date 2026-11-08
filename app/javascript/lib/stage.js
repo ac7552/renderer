@@ -20,6 +20,7 @@ import { shoeTexture, viewTexture } from "lib/garments/print"
 import { lastFor, shaftShare } from "lib/garments/lasts"
 import { hullGeometry } from "lib/garments/hull"
 import { lastGeometry, onLast } from "lib/garments/last_shape"
+import { loadTemplate, templateFor, templateGeometry, templateNow, templatesIndexed } from "lib/garments/templates"
 import { fitPose, projectAngled, readAngled } from "lib/garments/angled"
 import { BLANK_TEXTURE, PROJECTION, projectionUniforms, withProjection } from "lib/garments/fabric"
 import { meanRatio } from "lib/projection"
@@ -496,6 +497,7 @@ export class FittingStage {
     this.feet.meshes = []
     this.feet.shoes = {}
     this.feet.rise = null
+    this.feet.dressing = null
     if (!shoes && !socks) { this.applyPose(); return }
     // Built on the mannequin as it stands, flat on the floor, whatever the pose shown.
     const pose = this.pose
@@ -541,6 +543,26 @@ export class FittingStage {
       this.feet.meshes.push(mesh)
       return mesh
     }
+    // (Each build of the feet numbered: a photo still being laid on an earlier one isn't laid on this.)
+    const generation = this.feet.generation = (this.feet.generation ?? 0) + 1
+    // A closed shoe flat underfoot is fitted from its family's template (templates.js): the shoe as it's made, its
+    // sole's edge, collar, tongue, laces and seams. While the template is on its way the shoe is built on a last
+    // for now, not painted, and built again when it comes.
+    const onTheLast = Boolean(photoShaped && onLast(last, shoes.shoeSide))
+    const chosen = onTheLast ? templateFor(last, shoes.shoeSide, shoes.words ?? shoes.name ?? "") : null
+    const templateName = chosen?.name ?? null
+    const template = templateName ? templateNow(templateName) : null
+    // (A template chosen over the family's by the photo's outline keeps its own lacing, not the words'.)
+    const fitted = chosen && !chosen.own ? { ...last, laces: undefined } : last
+    const waiting = Boolean(templateName) && template === undefined
+    if (waiting) {
+      this.feet.dressing = key
+      templatesIndexed().then(() => loadTemplate(templateName)).finally(() => {
+        if (this.feet.key !== key || this.feet.generation !== generation) return
+        this.feet.key = null
+        this.dressFeet(shoes, socks)
+      })
+    }
     for (const side of ["L", "R"]) {
       if (socks) hang(new THREE.Mesh(sockGeometry(body, frame, side, socks.style), accessoryMaterial("knit", socks.color)), side)
       if (shoes) {
@@ -567,7 +589,8 @@ export class FittingStage {
         const views = (shoes.shoeViews ?? []).filter(v => v.shoes?.[0]?.silhouette)
         // A closed shoe flat underfoot is built on a last fitted to the photo (last_shape.js): a sole, walls and a
         // toe box, not a block carved and rounded every way.
-        const geometry = (photoShaped && onLast(last, shoes.shoeSide) && lastGeometry(body, frame, side, shoes.shoeSide, views, last))
+        const geometry = (template && templateGeometry(body, frame, side, shoes.shoeSide, views, fitted, template))
+          || (onTheLast && lastGeometry(body, frame, side, shoes.shoeSide, views, last))
           || (photoShaped && hullGeometry(body, frame, side, shoes.shoeSide, views, last, { depth: shoes.shoeDepth ?? null }))
           || (photoShaped && photoShoeGeometry(body, frame, side, shoes.shoeSide, last, { laces: relief })) || shoeGeometry(body, frame, side, last)
         this.feet.shoes[side] = hang(new THREE.Mesh(geometry, [sole, upper, laces, collar, eyelets]), side, heeled)
@@ -597,7 +620,7 @@ export class FittingStage {
     }
     this.pose = pose
     this.applyPose()
-    if (shoes?.shoePhoto && shoes.shoeSide) this.wearShoePhoto(shoes, key)
+    if (shoes?.shoePhoto && shoes.shoeSide && !waiting) this.wearShoePhoto(shoes, key, generation)
   }
 
   // Marks the body's points inside the shoes (see dressFeet): _cover_shoe, which mannequinMaterial hides.
@@ -639,17 +662,17 @@ export class FittingStage {
   // the shoe faces the side; elsewhere (the toe's top, the laces, the heel) the photo's own colours there,
   // blurred, as the side photo can't show them (see accessories.js#wrapShoePhoto). The laces and eyelets
   // stay 3D, in the laces' colour from the photo. The shoe keeps its finish (matte suede, glossy leather).
-  async wearShoePhoto(shoes, key) {
+  async wearShoePhoto(shoes, key, generation) {
     // (Under way: the photos are being read and laid on, a second or two with the model's outline.)
     this.feet.dressing = key
-    try { await this.layShoePhoto(shoes, key) } finally { if (this.feet.dressing === key) this.feet.dressing = null }
+    try { await this.layShoePhoto(shoes, key, generation) } finally { if (this.feet.dressing === key && this.feet.generation === generation) this.feet.dressing = null }
   }
 
-  async layShoePhoto(shoes, key) {
+  async layShoePhoto(shoes, key, generation) {
     const views = (shoes.shoeViews ?? []).filter(v => ["top", "back", "front"].includes(v.kind))
     const angledView = (shoes.shoeViews ?? []).find(v => v.kind === "angled")
     const [read, angled, ...canvases] = await Promise.all([shoeTexture(shoes.shoePhoto), angledView ? readAngled(angledView.photo, angledView.pair) : Promise.resolve(null), ...views.map(v => viewTexture(v.photo))].map(p => p.catch(() => null)))
-    if (!read || this.feet.key !== key) return
+    if (!read || this.feet.key !== key || this.feet.generation !== generation) return
     // The pair at an angle: the camera it was taken from, found from the shoe as built (angled.js). Only on a
     // shoe built on a last: a carved sandal's or heel's outline is too rough to find the camera by, and the
     // photo's footbed and straps would be laid where the foot is.

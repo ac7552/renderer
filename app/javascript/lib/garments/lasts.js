@@ -35,12 +35,15 @@ export function familyFromWords(words, style = "sneaker") {
     ["pump", /\bpumps?\b|stiletto|\bheels\b|heel height|(?:high|kitten|block|stacked|covered|cone|slim|sculpted|flared|platform|\d+(?:\.\d+)?\s?(?:"|”|in(?:ch)?|mm|cm)?)[- ]heel\b|\bkitten\b|heeled|\b\d{2,3} mule/i],
     ["slide", /\bslides?\b|\bmules?\b|\bclogs?\b|\bslippers?\b/i],
     ["sandal", /sandals?|flip[- ]?flops?|birkenstock/i],
-    ["flat", /ballet|ballerina|\bflats?\b|mary jane/i],
+    // (A sneaker's "flat woven laces" or "flat sole" isn't a flat.)
+    ["flat", /ballet|ballerina|\bflats?\b(?!\s+(?:woven|waxed|cotton|knit|laces?|sole|toe|top|profile))|mary jane/i],
     ["tall", /rain boots?|wellington|wellies?|dry boot|rubber boot|galosh|knee[- ]high|over[- ]the[- ]knee|thigh[- ]high|tall boot|riding boot|boot high\b/i],
+    // (Before the boots: a shop's tags say "boots" of its high-top sneakers too.)
+    ["hightop", /high[- ]?top sneakers?|\bhi\b|mid[- ]top sneakers?/i],
     // (A leather boot whose words lace it, or a 6-inch work boot, is a lace-up, not a Chelsea.)
     ["chelsea", /chelsea|^(?![\s\S]*\b(?:lace[sd]?|lacing|lace-up|eyelets?|(?:6|six)[- ]inch)\b)[\s\S]*(?:zip boot|ankle boot|boot(?!ie)[\s\S]*(?:leather|suede))/i],
     ["combat", /combat|hiking|lace[- ]up boot|work boot|\bboots?\b/i],
-    ["hightop", /high[- ]?tops?|\bhi\b|mid[- ]top/i],
+    ["hightop", /high[- ]?tops?|mid[- ]top/i],
     ["derby", /derby|oxford|brogue|monk|dress shoe|wingtip|blucher/i],
     ["loafer", /loafers?|moccasin|penny|driver|boat shoe|espadrille/i],
     ["runner", /running|runner|racer|trail|gel[- ]|pegasus|cloud(?:monster|swift|surfer|tilt)|\bhoka\b|asics|\b990|\b1906|\b2002|\b9060|\b550\b.*run|air max|zoom|ultraboost|marathon|jogger/i],

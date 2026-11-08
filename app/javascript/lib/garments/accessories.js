@@ -935,8 +935,11 @@ export function wrapShoePhoto(geometry, side, { views = [], foot = "L" } = {}) {
     // under its topline, rolled in (uv): the laces' and the suede's own colours along the shoe, not one plain
     // colour over the whole instep (whose median leaves white laces out).
     const upward = !shoes.top && !sole[i] ? Math.max(0, (ny - 0.35) / 0.4) * 0.8 : 0
+    // (Turning to the heel with no photo from behind, the side photo is taken only where the side still faces
+    // well out: further round, its heel's edge seen edge on would be stretched down the back in streaks.)
+    const behind = !shoes.back && nz < -0.2
     const w = [
-      Math.max(upward, ends ? Math.max(0, (Math.abs(nx) - 0.6) / 0.3) : Math.max(0, (Math.abs(nx) - 0.45) / 0.35)),
+      Math.max(upward, ends || behind ? Math.max(0, (Math.abs(nx) - 0.65) / 0.25) : Math.max(0, (Math.abs(nx) - 0.45) / 0.35)),
       // Not the sole's top edge (the welt): seen from above it's the photo's outline, mostly backdrop.
       // Nor the top of a shaft: from above, that's the lining and the insole inside it.
       shoes.top && !sole[i] ? Math.max(Math.max(0, (ny - 0.3) / 0.4), geometry.userData.toeFromTop && u > 0.75 ? Math.max(0, (nz - 0.2) / 0.4) : 0) * (1 - Math.min(1, Math.max(0, (y / (tallest || 1) - 0.8) / 0.12))) : 0,
