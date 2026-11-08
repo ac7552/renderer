@@ -2511,6 +2511,13 @@ async function readShoePhotos(listing, front, first) {
     const view = await readShoeView(other, side).catch(() => null)
     if (view && !views.some(v => v.kind === view.kind)) views.push(view)
   }
+  // And the pair at an angle (three-quarters from the front, most shops' second photo): laid on the 3D shoe
+  // where the side photo can't see (angled.js), its camera found when the shoe is built.
+  const angledAt = read.findIndex((r, i) => i !== index && r.role === "pair") >= 0 ? read.findIndex((r, i) => i !== index && r.role === "pair") : read.findIndex((r, i) => i !== index && r.role === "angled")
+  if (angledAt >= 0) {
+    const angled = await readShopPhoto(photos[angledAt].image.src, 1200).catch(() => null)
+    if (angled) views.push({ kind: "angled", photo: angled, pair: read[angledAt].role === "pair" })
+  }
   return { photo, views, index }
 }
 

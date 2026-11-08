@@ -20,6 +20,7 @@ import { shoeTexture, viewTexture } from "lib/garments/print"
 import { lastFor, shaftShare } from "lib/garments/lasts"
 import { hullGeometry } from "lib/garments/hull"
 import { lastGeometry, onLast } from "lib/garments/last_shape"
+import { fitPose, projectAngled, readAngled } from "lib/garments/angled"
 import { BLANK_TEXTURE, PROJECTION, projectionUniforms, withProjection } from "lib/garments/fabric"
 import { meanRatio } from "lib/projection"
 import { DrapeBank, exportEntry, skinWith, warmStart } from "lib/garments/drape_bank"
@@ -646,8 +647,15 @@ export class FittingStage {
 
   async layShoePhoto(shoes, key) {
     const views = (shoes.shoeViews ?? []).filter(v => ["top", "back", "front"].includes(v.kind))
-    const [read, ...canvases] = await Promise.all([shoeTexture(shoes.shoePhoto), ...views.map(v => viewTexture(v.photo))].map(p => p.catch(() => null)))
+    const angledView = (shoes.shoeViews ?? []).find(v => v.kind === "angled")
+    const [read, angled, ...canvases] = await Promise.all([shoeTexture(shoes.shoePhoto), angledView ? readAngled(angledView.photo, angledView.pair) : Promise.resolve(null), ...views.map(v => viewTexture(v.photo))].map(p => p.catch(() => null)))
     if (!read || this.feet.key !== key) return
+    // The pair at an angle: the camera it was taken from, found from the shoe as built (angled.js). Only on a
+    // shoe built on a last: a carved sandal's or heel's outline is too rough to find the camera by, and the
+    // photo's footbed and straps would be laid where the foot is.
+    const onTheLast = Boolean(this.feet.shoes.L?.geometry?.userData?.photo?.hull?.last)
+    const pose = angled && onTheLast ? fitPose(this.feet.shoes.L.geometry, angled) : null
+    this.feet.angled = angled ? { pose: pose && { ...pose, iou: +pose.iou.toFixed(3) } } : null
     const textureOf = canvas => {
       const texture = new THREE.CanvasTexture(canvas)
       texture.colorSpace = THREE.SRGBColorSpace
@@ -657,6 +665,7 @@ export class FittingStage {
     const texture = textureOf(read.canvas)
     const shown = views.filter((_, k) => canvases[k])
     const others = Object.fromEntries(shown.map(v => [v.kind, textureOf(canvases[views.indexOf(v)])]))
+    const angledTexture = pose ? textureOf(angled.canvas) : null
     // A blurred copy of the side photo, read on the CPU for each point's plain colour.
     const size = 96, blur = document.createElement("canvas")
     blur.width = blur.height = size
@@ -689,6 +698,10 @@ export class FittingStage {
     blank.needsUpdate = true
     for (const [foot, mesh] of Object.entries(this.feet.shoes)) {
       const geometry = wrapShoePhoto(mesh.geometry, shoes.shoeSide, { views: shown, foot })
+      // Where the angled photo lies on this shoe, and how much of it each point takes (none without it).
+      const projected = pose ? projectAngled(geometry, angled, pose, foot === "R") : null
+      geometry.setAttribute("uvAngled", new THREE.BufferAttribute(projected?.uv ?? new Float32Array(2 * geometry.attributes.position.count), 2))
+      geometry.setAttribute("aAngled", new THREE.BufferAttribute(projected?.weight ?? new Float32Array(geometry.attributes.position.count), 1))
       const plainUV = geometry.attributes.uvPlain.array, uv = geometry.attributes.uv.array, n = geometry.attributes.position.count
       const plain = new Float32Array(3 * n)
       for (let i = 0; i < n; i++) sample(plainUV[2 * i], plainUV[2 * i + 1], plain, 3 * i)
@@ -703,14 +716,17 @@ export class FittingStage {
           shader.uniforms.uTop = { value: others.top ?? blank }
           shader.uniforms.uBack = { value: others.back ?? (geometry.userData.backFromFront ? others.front : null) ?? blank }
           shader.uniforms.uFront = { value: others.front ?? (geometry.userData.frontFromBack ? others.back : null) ?? blank }
+          shader.uniforms.uAngled = { value: angledTexture ?? blank }
           shader.vertexShader = shader.vertexShader
-            .replace("#include <common>", "#include <common>\nattribute vec3 aPlain;\nattribute vec4 aViews;\nattribute vec2 uvTop;\nattribute vec2 uvBack;\nattribute vec2 uvFront;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;")
-            .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPlain = aPlain;\nvViews = aViews;\nvTop = uvTop;\nvBack = uvBack;\nvFront = uvFront;")
+            .replace("#include <common>", "#include <common>\nattribute vec3 aPlain;\nattribute vec4 aViews;\nattribute vec2 uvTop;\nattribute vec2 uvBack;\nattribute vec2 uvFront;\nattribute vec2 uvAngled;\nattribute float aAngled;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
+            .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPlain = aPlain;\nvViews = aViews;\nvTop = uvTop;\nvBack = uvBack;\nvFront = uvFront;\nvAngledUv = uvAngled;\nvAngled = aAngled;")
           shader.fragmentShader = shader.fragmentShader
-            .replace("#include <common>", "#include <common>\nuniform sampler2D uTop;\nuniform sampler2D uBack;\nuniform sampler2D uFront;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;")
+            .replace("#include <common>", "#include <common>\nuniform sampler2D uTop;\nuniform sampler2D uBack;\nuniform sampler2D uFront;\nuniform sampler2D uAngled;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
             .replace("#include <map_fragment>", `#include <map_fragment>
               float rest = max( 0.0, 1.0 - vViews.x - vViews.y - vViews.z - vViews.w );
-              diffuseColor.rgb = diffuseColor.rgb * vViews.x + texture2D( uTop, vTop ).rgb * vViews.y + texture2D( uBack, vBack ).rgb * vViews.z + texture2D( uFront, vFront ).rgb * vViews.w + vPlain * rest;`)
+              diffuseColor.rgb = diffuseColor.rgb * vViews.x + texture2D( uTop, vTop ).rgb * vViews.y + texture2D( uBack, vBack ).rgb * vViews.z + texture2D( uFront, vFront ).rgb * vViews.w + vPlain * rest;
+              // The angled photo where its camera saw the shoe, over all but the side photo's own side walls.
+              diffuseColor.rgb = mix( diffuseColor.rgb, texture2D( uAngled, vAngledUv ).rgb, clamp( vAngled * ( 1.0 - 0.75 * vViews.x ), 0.0, 1.0 ) );`)
         }
         m.customProgramCacheKey = () => "shoe-photo"
         m.needsUpdate = true
@@ -731,7 +747,7 @@ export class FittingStage {
       }
     }
     for (const t of this.feet.textures ?? []) t.dispose()
-    this.feet.textures = [texture, ...Object.values(others)]
+    this.feet.textures = [texture, ...Object.values(others), ...(angledTexture ? [angledTexture] : [])]
     this.feet.texture = texture
   }
 

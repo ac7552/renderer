@@ -1769,6 +1769,36 @@ export async function viewTexture(src, size = 1024) {
 
 export const SIDE_BINS = 64
 
+// A shop's photo of the pair at an angle (three-quarters from the front or behind), ready to lay on the 3D shoe
+// (angled.js): the photo at up to `size` across with the backdrop round the shoes filled in from their edges,
+// and the shoes' outline read on a smaller copy ({ canvas, read: RGBA at w by h, all: what stands out of the
+// backdrop, w, h }). Null when no shoe stands out.
+export async function angledReading(src, size = 1024) {
+  const image = await loadImage(src).catch(() => null)
+  if (!image) return null
+  const scale = Math.min(1, size / Math.max(image.naturalWidth, image.naturalHeight))
+  const w = Math.max(8, Math.round(image.naturalWidth * scale)), h = Math.max(8, Math.round(image.naturalHeight * scale))
+  const canvas = document.createElement("canvas")
+  canvas.width = w
+  canvas.height = h
+  const context = canvas.getContext("2d", { willReadFrequently: true })
+  context.drawImage(image, 0, 0, w, h)
+  const pixels = context.getImageData(0, 0, w, h)
+  const small = Math.min(1, SIZE / Math.max(w, h))
+  const sw = Math.max(8, Math.round(w * small)), sh = Math.max(8, Math.round(h * small))
+  const reader = document.createElement("canvas")
+  reader.width = sw
+  reader.height = sh
+  const rc = reader.getContext("2d", { willReadFrequently: true })
+  rc.drawImage(canvas, 0, 0, sw, sh)
+  const read = rc.getImageData(0, 0, sw, sh).data
+  const cut = withAll(cutOut(read, sw, sh, SHOE_LEAST), await modelOutline(read, sw, sh, src, { pair: true }), sw, sh)
+  if (!cut) return null
+  bleed(pixels.data, w, h, cut.all, sw, sh)
+  context.putImageData(pixels, 0, 0)
+  return { canvas, read, all: cut.all, w: sw, h: sh }
+}
+
 // Whether a side photo shows the shoe tilted (stood on its toe, or held up at an angle): its underside a
 // straight line, sloped. A heel's isn't straight (the arch rises off the floor between the heel and the
 // ball); a flat shoe stood level slopes little. Such a photo isn't a side: read as one, its slope is a heel.
