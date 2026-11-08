@@ -821,6 +821,8 @@ export function lookOf(out, pw, ph, coverage, allOver, color) {
       box.cy = sy / n / ph
       // Its shape (width over height, in pixels), which doesn't depend on how wide the front was taken to be.
       box.shape = (right + 1 - left) / Math.max(1, bottom + 1 - top)
+      // And its pieces, for the look check to leave out a render's strays far from the photo's graphic.
+      box.pieces = kept.map(q => ({ left: q.left / pw, right: (q.right + 1) / pw, top: q.top / ph, bottom: (q.bottom + 1) / ph, marks: q.marks, sx: q.sx / pw, sy: q.sy / ph, aspect: pw / ph }))
     }
   }
   return { color, coverage: allOver ? 1 : coverage, allOver, box }

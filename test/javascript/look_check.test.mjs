@@ -160,3 +160,17 @@ test("a dress's outline is held to its photo's: a tube drawn for a dress that fl
   // A photo misread (the Raleigh's read its hem a fifth of its hips) isn't held against the render.
   assert.equal(compareShapes({ hips: 1.06, hem: 0.19 }, { hips: 1, hem: 0.93 }), null)
 })
+
+test("a render's stray marks far from the photo's graphic don't stretch its box", async () => {
+  const { nearGraphic } = await import("../../app/javascript/lib/garments/look_check.js")
+  const piece = (left, right, top, bottom, marks) => ({ left, right, top, bottom, marks, sx: marks * (left + right) / 2, sy: marks * (top + bottom) / 2, aspect: 1 })
+  const graphic = piece(0.3, 0.75, 0.2, 0.42, 400), strayLeft = piece(0.15, 0.2, 0.3, 0.47, 30), strayRight = piece(0.84, 0.89, 0.3, 0.47, 30)
+  const box = { left: 0.15, right: 0.89, top: 0.2, bottom: 0.47, pieces: [graphic, strayLeft, strayRight] }
+  const near = nearGraphic(box, { left: 0.3, right: 0.76, top: 0.2, bottom: 0.39 })
+  assert.equal(near.left, 0.3)
+  assert.equal(near.right, 0.75)
+  assert.equal(near.bottom, 0.42)
+  // Nothing stray: the box as it was.
+  const one = { ...graphic, pieces: [graphic] }
+  assert.equal(nearGraphic(one, { left: 0.3, right: 0.76, top: 0.2, bottom: 0.39 }), one)
+})

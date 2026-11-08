@@ -314,3 +314,22 @@ test("a shoe photographed tilted on its toe isn't read as a side; a level one an
   // A stiletto: its sole a straight slope from the heel down to the ball, and a thin stem to the floor.
   assert.equal(tilted(draw(x => x < 24 ? 108 : 60 + (x - 20) * 0.3), w, 20, 180, 30, 108), false, "stiletto")
 })
+
+test("grey sleeves lying against a navy body are cut from it along the colour's edge; a diagonal half isn't", async () => {
+  const { splitBlocks } = await import("lib/garments/redrape")
+  const w = 200, h = 240
+  const make = colourAt => {
+    const d = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h)
+    for (let y = 20; y < 220; y++) for (let x = 20; x < 180; x++) { mask[y * w + x] = 1; d.set([...colourAt(x, y), 255], 4 * (y * w + x)) }
+    return { d, mask, box: { left: 20, right: 179, top: 20, bottom: 219 } }
+  }
+  const navy = [36, 37, 48], grey = [200, 200, 200]
+  // The body from 55 to 145 across; the sleeves either side of it below the shoulders (row 70), touching.
+  const layered = make((x, y) => (y > 70 && (x < 55 || x > 145) ? grey : navy))
+  assert.ok(splitBlocks(layered.d, layered.mask, w, h, layered.box) > 100)
+  assert.equal(layered.mask[120 * w + 54], 0, "cut at the body's left edge")
+  assert.equal(layered.mask[120 * w + 100], 1)
+  // One half grey along a diagonal: no upright edge.
+  const diagonal = make((x, y) => (x > 40 + (y - 20) * 0.6 ? grey : navy))
+  assert.equal(splitBlocks(diagonal.d, diagonal.mask, w, h, diagonal.box), 0)
+})

@@ -525,6 +525,9 @@ export async function loadPhotoForRedrape(src, size = 2000, { labels = true, kin
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) mask[y * w + x] = found.mask[Math.min(sh - 1, y >> 1) * sw + Math.min(sw - 1, x >> 1)]
   const b = found.box
   const box = { left: b.left * 2, right: Math.min(w - 1, b.right * 2 + 1), top: b.top * 2, bottom: Math.min(h - 1, b.bottom * 2 + 1), w, h }
+  // Sleeves of another colour lying against the body (a layered tee's): told apart from it along the colour's
+  // edge (splitBlocks).
+  const split = worn || kind !== "top" ? 0 : splitBlocks(ctx.getImageData(0, 0, w, h).data, mask, w, h, box)
   // The light rim just inside the outline (the backdrop blended into the cloth's edge, the cut-out's
   // half-size steps), taken over by the cloth just inside it: laid on, a leg's or a tee's side lands on that
   // thin strip of the photo, stretched, and it showed as white down the seam.
@@ -537,7 +540,7 @@ export async function loadPhotoForRedrape(src, size = 2000, { labels = true, kin
   const plain = ctx.getImageData(0, 0, w, h)
   bleed(plain.data, mask, w, h, BLEED)
   ctx.putImageData(plain, 0, 0)
-  return { canvas, mask, box, bg: found.bg, flat, worn, cloth: clothColourOf(plain.data, mask, w, h), rim, cords: cordCount }
+  return { canvas, mask, box, bg: found.bg, flat, worn, cloth: clothColourOf(plain.data, mask, w, h), rim, cords: cordCount, split }
 }
 
 // A hood's drawcords in a photo of the front, painted out with the cloth either side of them: laid on point
@@ -1067,8 +1070,95 @@ function shadowOf(r, g, b, R, G, B) {
   const k = (r * R + g * G + b * B) / (R * R + G * G + B * B)
   return k > 0.25 && k < 1 && Math.hypot(r - k * R, g - k * G, b - k * B) < 0.15 * top
 }
-// The share of a garment far from its middle colour past which it's colour-blocked, and not calmed.
-const CALM_BLOCKED = 0.2
+// Colour blocks: two colours this far apart (RGB), the lesser at least this share of the garment's outer quarters.
+const BLOCK_APART = 140, BLOCK_SHARE = 0.12
+
+// Whether a garment's photo (d: RGBA, w across; mask; box) is colour-blocked: the pixels of its outer quarters
+// either side split two ways (two means, a few rounds), the two colours BLOCK_APART or more apart and the
+// lesser BLOCK_SHARE or more of them. A shadow and the lit cloth are nearer than that (a yellow's fold: about
+// 110); a navy body and grey sleeves, a blue half and a grey one, are twice it.
+export function colourBlocked(d, mask, w, box) {
+  const two = twoColours(d, mask, w, box)
+  return Boolean(two && two.apart >= BLOCK_APART && two.lesser >= BLOCK_SHARE)
+}
+
+// The two colours of a garment's outer quarters (two means): { colours: [rgb, rgb], apart, lesser (the share
+// of the smaller) }, or null with too few pixels.
+function twoColours(d, mask, w, box) {
+  const px = []
+  const bw = box.right - box.left + 1
+  for (let y = box.top; y <= box.bottom; y += 3) for (let x = box.left; x <= box.right; x += 3) {
+    if (!mask[y * w + x]) continue
+    const f = (x - box.left) / bw
+    if (f > 0.25 && f < 0.75) continue
+    const i = 4 * (y * w + x)
+    px.push([d[i], d[i + 1], d[i + 2]])
+  }
+  if (px.length < 40) return null
+  const lum = p => p[0] + p[1] + p[2]
+  const sorted = px.slice().sort((a, b) => lum(a) - lum(b))
+  let c = [sorted[Math.floor(sorted.length * 0.1)], sorted[Math.floor(sorted.length * 0.9)]]
+  let count = [0, 0]
+  for (let round = 0; round < 6; round++) {
+    const sum = [[0, 0, 0], [0, 0, 0]]
+    count = [0, 0]
+    for (const p of px) { const k = rgbDist(p, c[0]) <= rgbDist(p, c[1]) ? 0 : 1; count[k]++; for (let ch = 0; ch < 3; ch++) sum[k][ch] += p[ch] }
+    c = c.map((old, k) => (count[k] ? sum[k].map(v => v / count[k]) : old))
+  }
+  return { colours: c, apart: rgbDist(c[0], c[1]), lesser: Math.min(...count) / px.length }
+}
+const rgbDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+// A colour-blocked garment whose sleeves lie against its body in the photo (a layered tee's grey sleeves down
+// a navy body's sides, touching it to the hem): each row is one run, so the layout (layoutPhoto) can't tell
+// the sleeves from the body, and the body's sides were laid on in the sleeves' grey. Where the body's own
+// colour meets the other one in a line down the photo (near upright, a sleeve's width or more in from the
+// outline, for a fifth of the garment's height or more), a gap two pixels wide is cut along it, so the layout
+// reads the sleeve as a run of its own. A diagonal split (one half grey) isn't upright, and isn't cut.
+// Returns the rows cut.
+export function splitBlocks(d, mask, w, h, box) {
+  const two = twoColours(d, mask, w, box)
+  if (!two || two.apart < BLOCK_APART || two.lesser < BLOCK_SHARE) return 0
+  const bw = box.right - box.left + 1, mid = Math.round((box.left + box.right) / 2)
+  const which = i => (rgbDist([d[4 * i], d[4 * i + 1], d[4 * i + 2]], two.colours[0]) <= rgbDist([d[4 * i], d[4 * i + 1], d[4 * i + 2]], two.colours[1]) ? 0 : 1)
+  let cut = 0
+  for (const dir of [-1, 1]) {
+    // Per row: from the outline inward, the column where a stretch of the other colour gives way to the body's.
+    const edge = new Float64Array(h).fill(NaN)
+    for (let y = box.top; y <= box.bottom; y++) {
+      if (!mask[y * w + mid]) continue
+      // The body's colour here: the row's colour a little in from the middle (a chest print aside, most rows).
+      let a = 0, b = 0
+      for (let x = mid - Math.round(bw * 0.15); x <= mid + Math.round(bw * 0.15); x += 2) if (mask[y * w + x]) (which(y * w + x) ? b++ : a++)
+      const body = a >= b ? 0 : 1
+      // The run's outer end on this side.
+      let x = mid
+      while (x + dir >= box.left && x + dir <= box.right && mask[y * w + x + dir]) x += dir
+      const outer = x
+      let run = 0
+      while (x !== mid && mask[y * w + x] && which(y * w + x) !== body) { run++; x -= dir }
+      // (A few of the body's pixels in a row must follow, not a speck.)
+      let then = 0
+      for (let k = 0; k < 6 && x !== mid; k++, x -= dir) if (mask[y * w + x] && which(y * w + x) === body) then++
+      if (run >= bw * 0.05 && then >= 5) edge[y] = outer - dir * run
+    }
+    // Upright: the rows found, their edge's column changing little from row to row, over a fifth of the height.
+    const rows = []
+    for (let y = box.top; y <= box.bottom; y++) if (!Number.isNaN(edge[y])) rows.push(y)
+    if (rows.length < (box.bottom - box.top) * 0.2) continue
+    let steps = 0, jumps = 0
+    for (let k = 1; k < rows.length; k++) if (rows[k] === rows[k - 1] + 1) { steps++; if (Math.abs(edge[rows[k]] - edge[rows[k - 1]]) > 2) jumps++ }
+    const xs = rows.map(y => edge[y]).sort((p, q) => p - q)
+    const spread = xs[Math.floor(xs.length * 0.9)] - xs[Math.floor(xs.length * 0.1)]
+    if (!steps || jumps / steps > 0.25 || spread > bw * 0.08) continue
+    for (const y of rows) {
+      const x = Math.round(edge[y])
+      for (const xx of [x, x + dir]) if (xx >= 0 && xx < w) mask[y * w + xx] = 0
+      cut++
+    }
+  }
+  return cut
+}
 
 function calmFolds(image, mask, box, sw, sh) {
   const w = box.w, h = box.h, d = image.data
@@ -1094,22 +1184,10 @@ function calmFolds(image, mask, box, sw, sh) {
     if (Math.hypot(d[i] - broad[0][k] / wt, d[i + 1] - broad[1][k] / wt, d[i + 2] - broad[2][k] / wt) > FAR) cell[1]++
   }
   const counted = cells.filter(([n]) => n > 20)
-  // Nor a colour-blocked garment (a hoodie half grey, a cream yoke over navy): much of its broad colour (folds
-  // and fading averaged out) far from its middle colour, and no shadow of it. Its broad colour would smear one
-  // block into the next.
-  {
-    const px = [[], [], []]
-    for (let y = box.top; y <= box.bottom; y += 4) for (let x = box.left; x <= box.right; x += 4) {
-      if (!mask[y * w + x]) continue
-      const k = (y >> 2) * sw + (x >> 2), wt = weight[k]
-      if (wt > 0) for (let c = 0; c < 3; c++) px[c].push(broad[c][k] / wt)
-    }
-    const n = px[0].length
-    const mid = px.map(v => v.slice().sort((a, b) => a - b)[v.length >> 1])
-    let apart = 0
-    for (let j = 0; j < n; j++) if (Math.hypot(px[0][j] - mid[0], px[1][j] - mid[1], px[2][j] - mid[2]) > FAR && !shadowOf(px[0][j], px[1][j], px[2][j], ...mid)) apart++
-    if (n && apart / n > CALM_BLOCKED) return false
-  }
+  // Nor a colour-blocked garment (a hoodie half grey, a cream yoke over navy, a layered tee's grey sleeves):
+  // its outer quarters either side (sleeves, sides: where blocks run, not a chest print) hold two colours
+  // far apart, the lesser a good share of them. Its broad colour would smear one block into the next.
+  if (colourBlocked(d, mask, w, box)) return false
   if (!counted.length || counted.filter(([n, far]) => far / n > CALM_PRINTED).length >= Math.ceil(counted.length * 0.6)) return false
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (!mask[y * w + x]) continue

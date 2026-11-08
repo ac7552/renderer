@@ -41,6 +41,9 @@ export const BARS = {
   flare: [1 / 1.15, 1.3]
 }
 
+// How much more loosely a graphic's size is held when it sits exactly where the photo's does (see the place check).
+const PLACED_SIZE = 1.25
+
 // The collar's band at the top of a front, which lookOf (print.js) leaves out: a share of the front's length.
 const COLLAR_BAND = 0.08
 // How much less a worn dress widens from its hips to its hem than the same dress laid flat (a worn hem
@@ -105,7 +108,7 @@ export function compareLooks(photo, render, { likeness = null, named = null, bar
   // misread), its height over the garment's length (what grows when it's laid too big: the length is the same
   // on a flat photo and a worn render, where its width depends on how the sleeves lie), and its shape.
   if (photo.box && render.box) {
-    const p = photo.box, r = render.box
+    const p = photo.box, r = nearGraphic(render.box, p)
     // Its middle across is where most of it is, when both readings have that: a box's middle moves a long
     // way when a scrap of print at one side is or isn't read (the render's at another screen's sharpness).
     const across = (box) => typeof box.cx === "number" ? box.cx : (box.left + box.right) / 2
@@ -123,9 +126,15 @@ export function compareLooks(photo, render, { likeness = null, named = null, bar
     // And for the same reason its middle across is allowed twice as far: a scene to one side of a wide
     // print sits further out on the curve of a worn front (a good render of one read 0.11 off).
     const sideways = wide ? bars.place * 2 : bars.place
+    // A graphic laid exactly where the photo's is (its top and middle within half the bar) but read a little
+    // bigger or smaller: a tonal print (grey embroidery on grey melange) whose fainter lines the photo's reading
+    // misses and the render's lighting brings out. Its size and shape are held more loosely (PLACED_SIZE): the
+    // fit falling back to plain colour over it would be the bigger error.
+    const placed = top <= bars.place / 2 && middle <= sideways / 2
+    const sizeBar = placed ? bars.size * PLACED_SIZE : bars.size, shapeBar = placed ? bars.shape * PLACED_SIZE : bars.shape
     checks.place = {
       score: round(Math.max(top, middle)), top: round(top), middle: round(middle), size: round(size), shape: round(shape),
-      pass: top <= bars.place && middle <= sideways && (underCollar || (size <= bars.size && size >= 1 / bars.size)) && shape <= bars.shape && shape >= 1 / bars.shape
+      pass: top <= bars.place && middle <= sideways && (underCollar || (size <= sizeBar && size >= 1 / sizeBar)) && shape <= shapeBar && shape >= 1 / shapeBar
     }
   } else if (photo.box && !render.box) {
     // A small logo can read just under the size a graphic needs to have its place found (lookOf): it's
@@ -183,4 +192,22 @@ function lab(hex) {
 
 function round(n) {
   return typeof n === "number" ? Math.round(n * 1000) / 1000 : n
+}
+
+// A render's graphic box made only of its pieces near the photo's graphic (within STRAY_REACH of its box, as
+// shares of the front): the shading of folds on a light cloth reads as marks at the sides of a worn front,
+// and a box stretched out to them is no measure of where and how big the graphic was laid. When none are near,
+// or the pieces weren't kept, the box as it was.
+const STRAY_REACH = 0.05
+export function nearGraphic(box, photoBox) {
+  if (!box?.pieces?.length || !photoBox) return box
+  const g = { left: photoBox.left - STRAY_REACH, right: photoBox.right + STRAY_REACH, top: photoBox.top - STRAY_REACH, bottom: photoBox.bottom + STRAY_REACH }
+  const near = box.pieces.filter(q => q.right >= g.left && q.left <= g.right && q.bottom >= g.top && q.top <= g.bottom)
+  if (!near.length || near.length === box.pieces.length) return box
+  const left = Math.min(...near.map(q => q.left)), right = Math.max(...near.map(q => q.right))
+  const top = Math.min(...near.map(q => q.top)), bottom = Math.max(...near.map(q => q.bottom))
+  let n = 0, sx = 0, sy = 0
+  for (const q of near) { n += q.marks; sx += q.sx; sy += q.sy }
+  const aspect = near[0].aspect ?? 1
+  return { left, right, top, bottom, cx: sx / n, cy: sy / n, shape: ((right - left) * aspect) / Math.max(1e-6, bottom - top), pieces: near }
 }
