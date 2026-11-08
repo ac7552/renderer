@@ -632,6 +632,12 @@ export class FittingStage {
   // blurred, as the side photo can't show them (see accessories.js#wrapShoePhoto). The laces and eyelets
   // stay 3D, in the laces' colour from the photo. The shoe keeps its finish (matte suede, glossy leather).
   async wearShoePhoto(shoes, key) {
+    // (Under way: the photos are being read and laid on, a second or two with the model's outline.)
+    this.feet.dressing = key
+    try { await this.layShoePhoto(shoes, key) } finally { if (this.feet.dressing === key) this.feet.dressing = null }
+  }
+
+  async layShoePhoto(shoes, key) {
     const views = (shoes.shoeViews ?? []).filter(v => ["top", "back", "front"].includes(v.kind))
     const [read, ...canvases] = await Promise.all([shoeTexture(shoes.shoePhoto), ...views.map(v => viewTexture(v.photo))].map(p => p.catch(() => null)))
     if (!read || this.feet.key !== key) return

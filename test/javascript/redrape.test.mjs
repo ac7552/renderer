@@ -298,3 +298,19 @@ test("a hooded top's shoulders: where the width last leaps out, though its hood 
   const r2 = shoulderRow(sloped, 400)
   assert.ok(r2 >= 60 && r2 <= 85, `sloped shoulders at ${r2}`)
 })
+
+test("a shoe photographed tilted on its toe isn't read as a side; a level one and a heel are", async () => {
+  const { tilted } = await import("lib/garments/print")
+  const w = 200, h = 120
+  const draw = under => {
+    const m = new Uint8Array(w * h)
+    for (let x = 20; x <= 180; x++) { const b = Math.round(under(x)); for (let y = 30; y <= b; y++) m[y * w + x] = 1 }
+    return m
+  }
+  assert.equal(tilted(draw(x => 60 + (x - 20) * 0.3), w, 20, 180, 30, 108), true, "tilted")
+  assert.equal(tilted(draw(() => 80), w, 20, 180, 30, 80), false, "level")
+  // A heel: the heel's end and the ball on the floor, the arch up between.
+  assert.equal(tilted(draw(x => x < 50 ? 90 : x < 120 ? 90 - Math.sin((x - 50) / 70 * Math.PI) * 25 : 90), w, 20, 180, 30, 90), false, "heel")
+  // A stiletto: its sole a straight slope from the heel down to the ball, and a thin stem to the floor.
+  assert.equal(tilted(draw(x => x < 24 ? 108 : 60 + (x - 20) * 0.3), w, 20, 180, 30, 108), false, "stiletto")
+})

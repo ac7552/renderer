@@ -899,7 +899,10 @@ export function wrapShoePhoto(geometry, side, { views = [], foot = "L" } = {}) {
   const shoes = { top: pick(top, true), back: pick(behind, true), front: pick(ahead, false) }
   // No photo from in front but one from behind (or the other way round): the toe's or the heel's end
   // takes the other's photo, as the cloth is mostly the same round the shoe, rather than the plain colour.
-  geometry.userData.frontFromBack = !shoes.front && !!shoes.back
+  // (With a photo from above, the toe takes that: the toe box seen from above is most of what faces forward,
+  // and the back photo's heel tab and logo don't belong on a toe.)
+  geometry.userData.toeFromTop = !shoes.front && !!shoes.top
+  geometry.userData.frontFromBack = !shoes.front && !shoes.top && !!shoes.back
   geometry.userData.backFromFront = !shoes.back && !!shoes.front
   if (geometry.userData.frontFromBack) shoes.front = shoes.back
   if (geometry.userData.backFromFront) shoes.back = shoes.front
@@ -927,12 +930,16 @@ export function wrapShoePhoto(geometry, side, { views = [], foot = "L" } = {}) {
     if (shoes.front) put("front", 1 - y / (tallest || 1), 1)
     // The side photo where the shoe faces the side; where it turns to the heel or the toe, the photo from
     // that end when there is one (else the side photo, rolled in, and the plain colour).
-    const ends = (shoes.back && nz < 0) || (shoes.front && nz > 0)
+    const ends = (shoes.back && nz < 0) || (shoes.front && nz > 0) || (geometry.userData.toeFromTop && nz > 0 && u > 0.75)
+    // With no photo from above, what faces up (the laces, the tongue, a vamp's top) takes the side photo just
+    // under its topline, rolled in (uv): the laces' and the suede's own colours along the shoe, not one plain
+    // colour over the whole instep (whose median leaves white laces out).
+    const upward = !shoes.top && !sole[i] ? Math.max(0, (ny - 0.35) / 0.4) * 0.8 : 0
     const w = [
-      ends ? Math.max(0, (Math.abs(nx) - 0.6) / 0.3) : Math.max(0, (Math.abs(nx) - 0.45) / 0.35),
+      Math.max(upward, ends ? Math.max(0, (Math.abs(nx) - 0.6) / 0.3) : Math.max(0, (Math.abs(nx) - 0.45) / 0.35)),
       // Not the sole's top edge (the welt): seen from above it's the photo's outline, mostly backdrop.
       // Nor the top of a shaft: from above, that's the lining and the insole inside it.
-      shoes.top && !sole[i] ? Math.max(0, (ny - 0.3) / 0.4) * (1 - Math.min(1, Math.max(0, (y / (tallest || 1) - 0.8) / 0.12))) : 0,
+      shoes.top && !sole[i] ? Math.max(Math.max(0, (ny - 0.3) / 0.4), geometry.userData.toeFromTop && u > 0.75 ? Math.max(0, (nz - 0.2) / 0.4) : 0) * (1 - Math.min(1, Math.max(0, (y / (tallest || 1) - 0.8) / 0.12))) : 0,
       shoes.back ? Math.max(0, (-nz - 0.2) / 0.4) : 0,
       shoes.front ? Math.max(0, (nz - 0.2) / 0.4) : 0
     ].map(v => Math.min(1, v) ** 2)

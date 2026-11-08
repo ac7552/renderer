@@ -1636,11 +1636,22 @@ export async function readShoe(src) {
   canvas.height = h
   const context = canvas.getContext("2d", { willReadFrequently: true })
   context.drawImage(image, 0, 0, w, h)
-  return shoeColors(context.getImageData(0, 0, w, h).data, w, h)
+  const data = context.getImageData(0, 0, w, h).data
+  return shoeColors(data, w, h, { model: await modelOutline(data, w, h, src) })
 }
 
-export function shoeColors(data, w, h) {
-  const cut = cutOut(data, w, h, SHOE_LEAST)
+// The model's outline of a shoe for its photo (data, w by h) when the colours can't find it whole (a light
+// shoe on a light backdrop: shoeCutWeak), else null. pair: the photo may show both shoes (a view from above or
+// behind), so all that stands out of the backdrop is what the model is pointed at, not the biggest piece.
+async function modelOutline(data, w, h, src, { pair = false } = {}) {
+  const weak = shoeCutWeak(data, w, h)
+  if (!weak?.weak) return null
+  const { shoeModelMask } = await import("lib/garments/segment")
+  return shoeModelMask(data, w, h, pair ? weak.all : weak.rough, typeof src === "string" ? src : null)
+}
+
+export function shoeColors(data, w, h, { model = null } = {}) {
+  const cut = withModel(cutOut(data, w, h, SHOE_LEAST), model, w, h)
   if (!cut) return null
   const { mask } = cut.garment
   const { lab } = cut
@@ -1688,7 +1699,7 @@ export function shoeColors(data, w, h) {
   // The band round the top (a boot's padded collar), when it's mostly one colour that isn't the upper's.
   const band = patch(top, top + Math.max(1, Math.round((bottom - top) * 0.07)))
   const apart = band ? Math.hypot(...band.lab.map((v, i) => v - upper.lab[i])) : 0
-  const side = shoeSide(data, w, h)
+  const side = shoeSide(data, w, h, { model })
   if (side) delete side.mask
   return { color: upper.hex, sole: sole.hex, collar: apart > 16 && band.count >= band.of * 0.6 ? band.hex : null, side }
 }
@@ -1717,7 +1728,8 @@ export async function shoeTexture(src, size = 1024) {
   reader.height = sh
   const rc = reader.getContext("2d", { willReadFrequently: true })
   rc.drawImage(canvas, 0, 0, sw, sh)
-  const side = shoeSide(rc.getImageData(0, 0, sw, sh).data, sw, sh)
+  const read = rc.getImageData(0, 0, sw, sh).data
+  const side = shoeSide(read, sw, sh, { model: await modelOutline(read, sw, sh, src) })
   if (!side) return null
   bleed(pixels.data, w, h, side.mask, sw, sh)
   context.putImageData(pixels, 0, 0)
@@ -1745,7 +1757,8 @@ export async function viewTexture(src, size = 1024) {
   reader.height = sh
   const rc = reader.getContext("2d", { willReadFrequently: true })
   rc.drawImage(canvas, 0, 0, sw, sh)
-  const cut = cutOut(rc.getImageData(0, 0, sw, sh).data, sw, sh)
+  const read = rc.getImageData(0, 0, sw, sh).data
+  const cut = withAll(cutOut(read, sw, sh), await modelOutline(read, sw, sh, src, { pair: true }), sw, sh)
   if (!cut) return null
   bleed(pixels.data, w, h, cut.all, sw, sh)
   context.putImageData(pixels, 0, 0)
@@ -1754,18 +1767,83 @@ export async function viewTexture(src, size = 1024) {
 
 export const SIDE_BINS = 64
 
+// Whether a side photo shows the shoe tilted (stood on its toe, or held up at an angle): its underside a
+// straight line, sloped. A heel's isn't straight (the arch rises off the floor between the heel and the
+// ball); a flat shoe stood level slopes little. Such a photo isn't a side: read as one, its slope is a heel.
+export function tilted(mask, w, left, right, high, low) {
+  const xs = [], ys = []
+  for (let x = Math.round(left + 0.1 * (right - left)); x <= Math.round(left + 0.9 * (right - left)); x++) {
+    let y = -1
+    for (let yy = low; yy >= high; yy--) if (mask[yy * w + x]) { y = yy; break }
+    if (y >= 0) { xs.push(x); ys.push(y) }
+  }
+  if (xs.length < 10) return false
+  const n = xs.length, mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n
+  let sxy = 0, sxx = 0
+  for (let k = 0; k < n; k++) { sxy += (xs[k] - mx) * (ys[k] - my); sxx += (xs[k] - mx) ** 2 }
+  const slope = sxy / (sxx || 1)
+  let err = 0
+  for (let k = 0; k < n; k++) err += (ys[k] - (my + slope * (xs[k] - mx))) ** 2
+  const rms = Math.sqrt(err / n)
+  if (!(Math.abs(slope) > TILT_SLOPE && rms < (low - high + 1) * TILT_STRAIGHT)) return false
+  // A heel's stem: at the raised end, something reaches down to the floor (the lowest row) after all.
+  const [a, b] = slope > 0 ? [left, Math.round(left + 0.15 * (right - left))] : [Math.round(right - 0.15 * (right - left)), right]
+  for (let x = a; x <= b; x++) for (let y = low; y >= low - (low - high + 1) * 0.06; y--) if (mask[y * w + x]) return false
+  return true
+}
+// The slope (rise over run) past which a straight underside is a tilted photo (about 9 degrees), and how
+// straight it must be (its scatter about the line, as a share of the shoe's height).
+const TILT_SLOPE = 0.16, TILT_STRAIGHT = 0.035
+
+// A shoe's colour cut-out (cutOut) made whole by the model's outline (segment.js's shoeModelMask): what the
+// model takes for the shoe is the shoe, whatever its colour (a white panel on a white backdrop, which the
+// flood from the frame's edges reached and took for backdrop), joined to what the colours found. `model` is
+// kept on the cut, so the holes read after it are only those the model doesn't take for the shoe.
+function withModel(cut, model, w, h) {
+  if (!cut || !model) return cut
+  const merged = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) merged[i] = cut.garment.mask[i] || model[i] ? 1 : 0
+  return { ...cut, garment: largestPiece(merged, w, h), model }
+}
+
+// The same for a photo that may show both shoes (shoeView's): what stands out of the backdrop (`all`) joined to
+// the model's outline.
+function withAll(cut, model, w, h) {
+  if (!cut || !model) return cut
+  const all = Uint8Array.from(cut.all, (v, i) => (v || model[i] ? 1 : 0))
+  return { ...cut, all, model }
+}
+
+// Whether a shoe's side photo needs the model's outline: the colour cut-out is unsure of it when the shoe's
+// own colour is near the backdrop's (a white or cream shoe on Kith's off-white), so the flood from the frame's
+// edges runs into its panels. { rough: the cut-out's mask, weak } or null when no shoe stands out at all.
+export function shoeCutWeak(data, w, h) {
+  const cut = cutOut(data, w, h, SHOE_LEAST)
+  if (!cut) return null
+  const { lab, bg, far, garment } = cut
+  // The share of the shoe within a few steps of the backdrop's colour: a white upper's, a cream midsole's.
+  let near = 0
+  for (let i = 0; i < w * h; i++) if (garment.mask[i] && Math.abs(lab[3 * i] - bg[0]) <= far[0] * SHOE_NEAR && Math.hypot(lab[3 * i + 1] - bg[1], lab[3 * i + 2] - bg[2]) <= far[1] * SHOE_NEAR) near++
+  const share = near / Math.max(1, garment.count)
+  return { rough: garment.mask, all: cut.all, share, weak: share >= SHOE_WEAK }
+}
+// How near the backdrop's colour (in multiples of the cut-out's own tolerance) a pixel of the shoe counts as
+// light, and the share of such pixels past which the model's outline is asked for.
+const SHOE_NEAR = 6, SHOE_WEAK = 0.12
+
 // Where the shoe is in a side photo (see shoeTexture), with its mask at the photo's size.
 // (A shoe's piece can be as little as SHOE_LEAST of the frame: a flip-flop from the side.)
 const SHOE_LEAST = 0.008
-export function shoeSide(data, w, h) {
-  const cut = cutOut(data, w, h, SHOE_LEAST)
+export function shoeSide(data, w, h, { model = null } = {}) {
+  const cut = withModel(cutOut(data, w, h, SHOE_LEAST), model, w, h)
   if (!cut) return null
   const mask = cut.garment.mask.slice()
   // The backdrop seen through the shoe (between the laces, under a pulled-up loop) isn't the shoe: small
-  // backdrop-coloured holes in it are taken out. A white shoe's own big white panels stay.
+  // backdrop-coloured holes in it are taken out. A white shoe's own big white panels stay; with the model's
+  // outline, whatever it takes for the shoe stays, and only what it doesn't is a hole.
   const { lab, bg, far } = cut
   const backdrop = new Uint8Array(w * h)
-  for (let i = 0; i < w * h; i++) backdrop[i] = mask[i] && Math.abs(lab[3 * i] - bg[0]) <= far[0] && Math.hypot(lab[3 * i + 1] - bg[1], lab[3 * i + 2] - bg[2]) <= far[1] ? 1 : 0
+  for (let i = 0; i < w * h; i++) backdrop[i] = mask[i] && !cut.model?.[i] && Math.abs(lab[3 * i] - bg[0]) <= far[0] && Math.hypot(lab[3 * i + 1] - bg[1], lab[3 * i + 2] - bg[2]) <= far[1] ? 1 : 0
   // And every hole the backdrop shows through, whatever its size, for an open shoe (a fisherman sandal's
   // cut-outs, the gap between a sandal's straps and its sole), unless most of the shoe is the backdrop's
   // colour (a white shoe on white): `open`, which hull.js carves an open shoe by.
@@ -1777,7 +1855,7 @@ export function shoeSide(data, w, h) {
   const own = [[], [], []]
   for (let i = 0; i < w * h; i++) if (mask[i] && !backdrop[i]) for (let c = 0; c < 3; c++) own[c].push(lab[3 * i + c])
   const mid = own.map(v => { v.sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 0 })
-  const likeBackdrop = Math.abs(mid[0] - bg[0]) <= far[0] * 2.5 && Math.hypot(mid[1] - bg[1], mid[2] - bg[2]) <= far[1] * 2.5
+  const likeBackdrop = !cut.model && Math.abs(mid[0] - bg[0]) <= far[0] * 2.5 && Math.hypot(mid[1] - bg[1], mid[2] - bg[2]) <= far[1] * 2.5
   const openShare = backdropCount / Math.max(1, cut.garment.count)
   if (!likeBackdrop && openShare < 0.85) {
     open = mask.slice()
@@ -1809,6 +1887,7 @@ export function shoeSide(data, w, h) {
   // knee-high boot stands taller than it's long, down to about half.
   const long = (right - left + 1) / (low - high + 1)
   if (long < 0.45 || long > 5) return null
+  if (tilted(mask, w, left, right, high, low)) return null
   const top = new Float64Array(SIDE_BINS).fill(Infinity), bottom = new Float64Array(SIDE_BINS).fill(-Infinity)
   for (let x = left; x <= right; x++) {
     const bin = Math.min(SIDE_BINS - 1, Math.floor(((x - left) / (right - left + 1)) * SIDE_BINS))
@@ -1912,20 +1991,21 @@ export async function readShoeView(src, side) {
   canvas.height = h
   const context = canvas.getContext("2d", { willReadFrequently: true })
   context.drawImage(image, 0, 0, w, h)
-  const view = shoeView(context.getImageData(0, 0, w, h).data, w, h, side)
+  const data = context.getImageData(0, 0, w, h).data
+  const view = shoeView(data, w, h, side, { model: await modelOutline(data, w, h, src, { pair: true }) })
   return view && { ...view, photo: src }
 }
 
 export const VIEW_ROWS = 48
 export const HULL_ROWS = 128
-export function shoeView(data, w, h, side) {
+export function shoeView(data, w, h, side, { model = null } = {}) {
   // A pair lying touching (seen from above, side by side) is tried split in two when it isn't one shoe.
-  return viewOf(data, w, h, side, false) ?? viewOf(data, w, h, side, true)
+  return viewOf(data, w, h, side, false, model) ?? viewOf(data, w, h, side, true, model)
 }
 
-function viewOf(data, w, h, side, pair) {
+function viewOf(data, w, h, side, pair, model) {
   if (!side?.colours?.upper) return null
-  const cut = cutOut(data, w, h)
+  const cut = withAll(cutOut(data, w, h), model, w, h)
   if (!cut) return null
   const { lab } = cut
   const all = pieces(cut.all, w, h).sort((a, b) => b.length - a.length)
