@@ -51,6 +51,22 @@ test("a shoe on a last stands flat on the floor, as long as the foot and its toe
   assert.ok(!photo.within(0.1, 0.2, 0.06))
 })
 
+test("a lace-up has laces over its instep, in their own group; a slip-on hasn't", () => {
+  const { body, frame } = leg()
+  const laced = lastGeometry(body, frame, "L", side(), [], { family: "combat", square: 2.2, thick: 0.007, toe: 0.014 })
+  const groups = laced.groups.map(g => g.materialIndex)
+  assert.ok(groups.includes(2) && groups.includes(4), JSON.stringify(groups))
+  // The laces stand over the upper's top, between the collar and the toe box.
+  const p = laced.attributes.position, index = laced.index.array, g = laced.groups.find(q => q.materialIndex === 2)
+  let zmin = Infinity, zmax = -Infinity, xmax = 0
+  for (let k = g.start; k < g.start + g.count; k++) { const i = index[k]; zmin = Math.min(zmin, p.getZ(i)); zmax = Math.max(zmax, p.getZ(i)); xmax = Math.max(xmax, Math.abs(p.getX(i) - 0.1)) }
+  const photo = laced.userData.photo
+  assert.ok((zmin - photo.back) / photo.length > 0.15 && (zmax - photo.back) / photo.length < 0.72, `${zmin} ${zmax}`)
+  assert.ok(xmax < 0.03, `laces ${xmax} across`)
+  const slipOn = lastGeometry(body, frame, "L", side(), [], { family: "chelsea", square: 2.2, thick: 0.007, toe: 0.014 })
+  assert.ok(!slipOn.groups.some(q => q.materialIndex === 2))
+})
+
 test("a heeled or open shoe isn't built on a last", () => {
   assert.equal(onLast({ family: "court" }, side()), true)
   assert.equal(onLast({ family: "pump", heel: 0.06 }, side()), false)
@@ -58,4 +74,12 @@ test("a heeled or open shoe isn't built on a last", () => {
   assert.equal(onLast({ family: "court", heel: 0.02 }, side()), true, "a sneaker's heel-to-toe drop")
   assert.equal(onLast({ family: "court", heel: 0.05 }, side()), false)
   assert.equal(onLast({ family: "chelsea" }, side(0.2)), false)
+})
+
+test("a 6-inch work boot or a leather boot that laces is a lace-up; a Chelsea isn't", async () => {
+  const { familyFromWords } = await import("lib/garments/lasts")
+  assert.equal(familyFromWords("Timberland 6-Inch Premium Waterproof Boot - Wheat. Premium nubuck leather upper", "boot"), "combat")
+  assert.equal(familyFromWords("Leather boot with lace-up front", "boot"), "combat")
+  assert.equal(familyFromWords("Blundstone Chelsea Boot - Rustic Brown", "boot"), "chelsea")
+  assert.equal(familyFromWords("Suede ankle boot", "boot"), "chelsea")
 })

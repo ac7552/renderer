@@ -2093,14 +2093,14 @@ function viewOf(data, w, h, side, pair, model) {
   const widths = rows(box).map(r => (r ? r[1] - r[0] : 0)), widest = Math.max(...widths)
   const ends = [widths[2], widths[VIEW_ROWS - 3]].map(v => v / widest)
   const stands = ends[1] > 0.75
-  if (tall > 1.9 && tall < 4.5 && box.fill > 0.45 && wander < 0.09 && Math.max(...ends) < 0.75) {
+  // (Round at both ends; or, a pointed toe, narrow at one: a mule's or a pump's seen from above, its heel cup
+  // as wide as its ball. Seen from behind, a heel's stem is narrow too, but no opening shows: below.)
+  if (tall > 1.9 && tall < 4.5 && box.fill > 0.45 && wander < 0.09 && (Math.max(...ends) < 0.75 || Math.min(...ends) < 0.45)) {
     // From above, not below: the opening (the lining, the insole) shows in the heel's half, unlike the
-    // shoe's edge; a sole is one colour all over.
-    const toeUpGuess = (() => { const widths = rows(box).map(r => (r ? r[1] - r[0] : 0)); return widths.indexOf(Math.max(...widths)) / VIEW_ROWS < 0.5 })()
-    const heelY = toeUpGuess ? box.y0 + bh * 0.8 : box.y0 + bh * 0.2
-    const opening = colourOf(box, heelY - bh * 0.06, heelY + bh * 0.06, box.x0 + bw * 0.4, box.x1 - bw * 0.4)
+    // shoe's edge; a sole is one colour all over. (Either end: which is the heel is told below.)
     const rim = colourOf(box, box.y0 + bh * 0.45, box.y0 + bh * 0.55, box.x0, box.x0 + bw * 0.15)
-    if (distance(opening, rim) < 10) return null
+    const openingAt = f => colourOf(box, box.y0 + bh * (f - 0.06), box.y0 + bh * (f + 0.06), box.x0 + bw * 0.4, box.x1 - bw * 0.4)
+    if (Math.max(distance(openingAt(0.2), rim), distance(openingAt(0.8), rim)) < 10) return null
     // Which end is the toe: the end whose colour is the side photo's toe's (its top bands: the toe box) rather
     // than its heel's (the collar); when the colours don't tell them apart (one colour all over), the end
     // nearer the shoe's widest point (the ball of the foot; a slouched cuff can be wider, so colours first).
@@ -2112,7 +2112,11 @@ function viewOf(data, w, h, side, pair, model) {
     const toeBands = bandsOf(side.colours.toe), heelBands = bandsOf(side.colours.heel)
     const topIsToe = nearest(topEnd, toeBands) - nearest(topEnd, heelBands), bottomIsToe = nearest(bottomEnd, toeBands) - nearest(bottomEnd, heelBands)
     let toeUp
-    if (Number.isFinite(topIsToe) && Number.isFinite(bottomIsToe) && Math.abs(topIsToe - bottomIsToe) > 6) toeUp = topIsToe < bottomIsToe
+    // A pointed toe tells itself: one end narrow, the other a heel cup's width (the colours can mislead, a
+    // bright insole at the heel taken for a toe's colour band).
+    const tenth = [widths[Math.round(VIEW_ROWS * 0.12)], widths[Math.round(VIEW_ROWS * 0.88)]].map(v => v / widest)
+    if (Math.min(...tenth) < 0.4 && Math.max(...tenth) > Math.min(...tenth) * 1.8) toeUp = tenth[0] < tenth[1]
+    else if (Number.isFinite(topIsToe) && Number.isFinite(bottomIsToe) && Math.abs(topIsToe - bottomIsToe) > 6) toeUp = topIsToe < bottomIsToe
     else {
       const widths = rows(box).map(r => (r ? r[1] - r[0] : 0))
       toeUp = widths.indexOf(Math.max(...widths)) / VIEW_ROWS < 0.5

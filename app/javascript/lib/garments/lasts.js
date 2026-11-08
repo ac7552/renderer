@@ -37,7 +37,8 @@ export function familyFromWords(words, style = "sneaker") {
     ["sandal", /sandals?|flip[- ]?flops?|birkenstock/i],
     ["flat", /ballet|ballerina|\bflats?\b|mary jane/i],
     ["tall", /rain boots?|wellington|wellies?|dry boot|rubber boot|galosh|knee[- ]high|over[- ]the[- ]knee|thigh[- ]high|tall boot|riding boot|boot high\b/i],
-    ["chelsea", /chelsea|zip boot|ankle boot|boot(?!ie).*(?:leather|suede)(?!.*(?:combat|hiking|lace))/i],
+    // (A leather boot whose words lace it, or a 6-inch work boot, is a lace-up, not a Chelsea.)
+    ["chelsea", /chelsea|^(?![\s\S]*\b(?:lace[sd]?|lacing|lace-up|eyelets?|(?:6|six)[- ]inch)\b)[\s\S]*(?:zip boot|ankle boot|boot(?!ie)[\s\S]*(?:leather|suede))/i],
     ["combat", /combat|hiking|lace[- ]up boot|work boot|\bboots?\b/i],
     ["hightop", /high[- ]?tops?|\bhi\b|mid[- ]top/i],
     ["derby", /derby|oxford|brogue|monk|dress shoe|wingtip|blucher/i],

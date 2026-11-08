@@ -621,7 +621,10 @@ export class FittingStage {
           // (the front 40%) the rigid toes may stand proud of a low shoe, and are hidden with shoe beneath.
           // An open shoe carved through its openings (hull.js): the skin is hidden only where the shoe is, so
           // the foot shows through a sandal's straps and a slingback's back.
-          let hidden = p.open ? p.within(x, y, z) || p.within(x, y - 0.006 * s, z) : y <= p.top(Math.min(1, Math.max(0, u)))
+          // (And under its topline wherever its side photo shows the shoe, not the backdrop: a pump's closed toe
+          // hides the mannequin's rigid toes even where they stand out of the carved toe box.)
+          const uc = Math.min(1, Math.max(0, u))
+          let hidden = p.open ? p.within(x, y, z) || p.within(x, y - 0.006 * s, z) || (y <= p.top(uc) && p.shoeAt?.(uc, y) === true) || y <= frame.floor + 0.004 * s : y <= p.top(uc)
           if (!hidden && !p.open && u > 0.6) for (let d = 0.004 * s; !hidden && d <= 0.03 * s; d += 0.004 * s) hidden = p.within(x, y - d, z)
           if (hidden) { cover[i] = 1; break }
         }

@@ -25,6 +25,11 @@ const INSOLE = 0.18
 const ROUND = { runner: 2.6, court: 2.8, chunky: 2.8, hightop: 3, chelsea: 3.2, combat: 3.2, tall: 3.2, derby: 2.8, loafer: 2.6, flat: 2.4 }
 // The families built this way.
 export const LAST_FAMILIES = new Set(Object.keys(THROAT))
+// The lace-ups among them (unless the listing's words say slip-on: lasts.js's `laces`), where the lacing ends at
+// the toe box (a share of the length), and those whose eyelets are metal.
+const LACED = new Set(["runner", "court", "chunky", "hightop", "combat", "derby"])
+const LACE_END = { runner: 0.66, court: 0.64, chunky: 0.64, hightop: 0.64, combat: 0.62, derby: 0.6 }
+const METAL_EYELETS = new Set(["combat"])
 
 // body, frame, side: the foot to stand on; outline: shoeSide's reading of the side photo; views: shoeView
 // readings (a view from above sets the plan); style: the last (lasts.js's: family, square, thick, toe).
@@ -89,7 +94,18 @@ export function lastGeometry(body, frame, side, outline, views, style) {
     return seen != null && u > 0.04 && u < 0.96 ? Math.min(planned * 1.3, Math.max(planned * 0.8, seen)) : planned
   }
   const family = style.family ?? "court"
-  const throat = THROAT[family] ?? 0.44, n = ROUND[family] ?? 2.8
+  const n = ROUND[family] ?? 2.8
+  // A lace-up's opening ends where its collar does (the topline still near its highest, read from the photo),
+  // and the laces run from there down the instep to the toe box; a slip-on's throat is its family's.
+  const laced = LACED.has(family) && style.laces !== false
+  let throat = THROAT[family] ?? 0.44
+  if (laced) {
+    let high = -Infinity
+    for (let u = 0; u <= 0.6; u += 0.01) high = Math.max(high, yTop(u))
+    let collar = 0.15
+    for (let u = 0.05; u <= 0.6; u += 0.01) if (yTop(u) >= ySole(u) + (high - ySole(u)) * 0.92) collar = u
+    throat = Math.min(0.5, Math.max(0.18, collar))
+  }
   // How open each station is: 1 back from the throat, closing over a short run past it.
   // (And closed at the very heel: the counter's back wall stands to the topline all across, not notched.)
   const openAt = u => (1 - smoothstep(throat - 0.05, throat + 0.03, u)) * smoothstep(0.035, 0.09, u)
@@ -163,11 +179,59 @@ export function lastGeometry(body, frame, side, outline, views, style) {
       }
     }
   }
+  // The laces: down the instep from the collar to the toe box, eyelet rows either side of the tongue and the
+  // lace crossed between them, each a round cord standing on the upper; a boot's eyelets in metal.
+  const laceIndex = [], eyeletIndex = []
+  if (laced) {
+    // A point on the upper's top at (u, x): the superellipse's height there, lifted by `lift`.
+    const onTop = (u, x, lift) => {
+      const ys = ySole(u), yt = Math.max(ys + 0.004 * s, yTop(u)), W = Math.max(0.002 * s, halfAt(u)), yw = ys + wall * (yt - ys)
+      const f = Math.min(0.999, Math.abs(x) / W)
+      return [x, yw + (yt - yw) * (1 - f ** n) ** (1 / n) + lift, back + u * span]
+    }
+    const from = throat + 0.03, to = Math.min(0.7, Math.max(from + 0.12, LACE_END[family] ?? 0.64))
+    const count = Math.max(4, Math.min(9, Math.round(((to - from) * span) / (0.017 * s))))
+    const r = 0.0028 * s
+    const eyes = Array.from({ length: count }, (_, i) => {
+      const u = from + ((to - from) * i) / (count - 1)
+      // The rows close in toward the toe (a throat's V).
+      const e = halfAt(u) * (0.36 - 0.12 * (i / (count - 1)))
+      return { u, left: onTop(u, -e, r), right: onTop(u, e, r) }
+    })
+    const cord = (a, b, list, radius = r, sides = 6) => {
+      const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], len = Math.hypot(...d) || 1
+      const t = d.map(v => v / len)
+      const helper = Math.abs(t[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+      const u1 = norm(cross(t, helper)), v1 = cross(t, u1)
+      // (Bowed up a little at its middle, as a lace over a tongue is.)
+      const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + radius * 0.8, (a[2] + b[2]) / 2]
+      const path = [a, mid, b]
+      const rings = path.map(p => Array.from({ length: sides }, (_, k) => {
+        const ang = (k / sides) * 2 * Math.PI, c = Math.cos(ang) * radius, sn = Math.sin(ang) * radius
+        return put(p[0] + u1[0] * c + v1[0] * sn, p[1] + u1[1] * c + v1[1] * sn, p[2] + u1[2] * c + v1[2] * sn)
+      }))
+      for (let i = 0; i + 1 < rings.length; i++) for (let k = 0; k < sides; k++) {
+        const k2 = (k + 1) % sides
+        list.push(rings[i][k], rings[i][k2], rings[i + 1][k2], rings[i][k], rings[i + 1][k2], rings[i + 1][k])
+      }
+    }
+    for (let i = 0; i < count; i++) {
+      const e = eyes[i]
+      // Straight across at the toe's end, crossed between the rows above it.
+      if (i === count - 1) cord(e.left, e.right, laceIndex)
+      if (i + 1 < count) { cord(e.left, eyes[i + 1].right, laceIndex); cord(e.right, eyes[i + 1].left, laceIndex) }
+      // The eyelets: a ring round each, in metal on a boot (and a shade of the upper otherwise, drawn as the
+      // upper is, so only a boot's are added).
+      if (METAL_EYELETS.has(family)) for (const p of [e.left, e.right]) cord([p[0], p[1] - r * 0.6, p[2] - r * 1.4], [p[0], p[1] - r * 0.6, p[2] + r * 1.4], eyeletIndex, r * 1.9, 8)
+    }
+  }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setIndex([...soleIndex, ...upperIndex])
+  geometry.setIndex([...soleIndex, ...upperIndex, ...laceIndex, ...eyeletIndex])
   geometry.addGroup(0, soleIndex.length, 0)
   geometry.addGroup(soleIndex.length, upperIndex.length, 1)
+  if (laceIndex.length) geometry.addGroup(soleIndex.length + upperIndex.length, laceIndex.length, 2)
+  if (eyeletIndex.length) geometry.addGroup(soleIndex.length + upperIndex.length + laceIndex.length, eyeletIndex.length, 4)
   geometry.computeVertexNormals()
   const within = (x, y, z) => {
     const u = (z - back) / span
@@ -197,6 +261,9 @@ export function onLast(style, outline) {
   }
   return true
 }
+
+function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]] }
+function norm(v) { const l = Math.hypot(...v) || 1; return v.map(c => c / l) }
 
 function lerp(list, u) {
   const f = Math.min(1, Math.max(0, u)) * (list.length - 1), k = Math.min(list.length - 2, Math.floor(f)), t = f - k

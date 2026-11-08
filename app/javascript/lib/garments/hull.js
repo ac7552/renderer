@@ -233,7 +233,7 @@ export function hullGeometry(body, frame, side, outline, views, style, { depth =
   geometry.addGroup(0, sole.length, 0)
   geometry.addGroup(sole.length, upper.length, 1)
   geometry.computeVertexNormals()
-  geometry.userData.photo = { floor, back: origin, length: span, metres, top: u => floor + (floorLine - topAt(u)) * metres, within, centreX, widest, open: carved > 0, hull: { carved, views: (views ?? []).map(v => v.kind), relief: Boolean(depth), cells: [nx, ny, nz], widths, sole: [+uL.toFixed(3), +uR.toFixed(3)], span: +span.toFixed(3), length: +length.toFixed(3), height: +height.toFixed(3), topRows: topShoe ? soften(topShoe.silhouette).filter((_, i, a) => i % Math.ceil(a.length / 12) === 0).map(r => r && r.map(v => +v.toFixed(3))) : null } }
+  geometry.userData.photo = { floor, back: origin, length: span, metres, top: u => floor + (floorLine - topAt(u)) * metres, within, centreX, widest, open: carved > 0, shoeAt: openAt ? (u, y) => openAt(u, y) : null, hull: { carved, views: (views ?? []).map(v => v.kind), relief: Boolean(depth), cells: [nx, ny, nz], widths, sole: [+uL.toFixed(3), +uR.toFixed(3)], span: +span.toFixed(3), length: +length.toFixed(3), height: +height.toFixed(3), topRows: topShoe ? soften(topShoe.silhouette).filter((_, i, a) => i % Math.ceil(a.length / 12) === 0).map(r => r && r.map(v => +v.toFixed(3))) : null } }
   return geometry
 }
 
