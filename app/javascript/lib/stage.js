@@ -19,6 +19,7 @@ import { accessoryMaterial, beltGeometry, buckleGeometry, heelRise, heelStemGeom
 import { shoeTexture, viewTexture } from "lib/garments/print"
 import { lastFor, shaftShare } from "lib/garments/lasts"
 import { hullGeometry } from "lib/garments/hull"
+import { lastGeometry, onLast } from "lib/garments/last_shape"
 import { BLANK_TEXTURE, PROJECTION, projectionUniforms, withProjection } from "lib/garments/fabric"
 import { meanRatio } from "lib/projection"
 import { DrapeBank, exportEntry, skinWith, warmStart } from "lib/garments/drape_bank"
@@ -563,7 +564,10 @@ export class FittingStage {
         // outline exact, the visible side's relief from the photo's depth, the far side mirrored, the width
         // from a top, front or back photo when there is one); with none, drawn from the style.
         const views = (shoes.shoeViews ?? []).filter(v => v.shoes?.[0]?.silhouette)
-        const geometry = (photoShaped && hullGeometry(body, frame, side, shoes.shoeSide, views, last, { depth: shoes.shoeDepth ?? null }))
+        // A closed shoe flat underfoot is built on a last fitted to the photo (last_shape.js): a sole, walls and a
+        // toe box, not a block carved and rounded every way.
+        const geometry = (photoShaped && onLast(last, shoes.shoeSide) && lastGeometry(body, frame, side, shoes.shoeSide, views, last))
+          || (photoShaped && hullGeometry(body, frame, side, shoes.shoeSide, views, last, { depth: shoes.shoeDepth ?? null }))
           || (photoShaped && photoShoeGeometry(body, frame, side, shoes.shoeSide, last, { laces: relief })) || shoeGeometry(body, frame, side, last)
         this.feet.shoes[side] = hang(new THREE.Mesh(geometry, [sole, upper, laces, collar, eyelets]), side, heeled)
         if (shoes.style === "sandal" && !photoShaped) hang(new THREE.Mesh(strapGeometry(body, frame, side), upper.clone()), side, heeled)
