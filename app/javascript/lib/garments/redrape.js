@@ -862,7 +862,7 @@ export function guardForeign(top, uv, photos) {
   // label show (laid on, a dark square under the chin, between the collar's points drawn over it): the
   // middle of the front's top takes the cloth below it. (neckDepth: how far the front's neckline dips, cm.)
   const item = top.item ?? {}
-  const collared = item.cut?.photo?.collar ? item.cut.photo.collar === "shirt" : ["shirt", "shortshirt", "polo", "rugby"].includes(item.style)
+  const collared = item.cut?.collar === "shirt" || (item.cut?.photo?.collar ? item.cut.photo.collar === "shirt" : ["shirt", "shortshirt", "polo", "rugby"].includes(item.style))
   const neckDepth = top.pattern?.measures?.frontNeck ?? 8
   for (let i = 0; i < n; i++) {
     const photo = uv[3 * i + 2] === 3 && photos.back ? photos.back : photos.front

@@ -262,7 +262,7 @@ class GarmentImport
     !data.empty? && data.count("^A-Za-z0-9+/=").zero?
   end
   # Bump when what an import returns changes, so cached imports from before aren't served.
-  FORMAT = 37
+  FORMAT = 39
 
   # The shop's main product photo, fetched here and sent to the page inline, so the person's browser never
   # contacts the shop's image server and the page can read the photo's colours. Optional: a garment
@@ -1156,6 +1156,10 @@ class GarmentImport
     fit_cut = { **(fit_cut || {}), fit: "fitted", stretch: true } if bodysuit
     # A half-zip or quarter-zip pullover: a stand collar with a short zip down from it (a hoodie keeps its hood).
     fit_cut = (fit_cut || {}).merge(half_zip: true) if kind == "top" && !%w[hoodie dress tank].include?(style) && product.values_at(:name, :description).join(" ").match?(HALF_ZIP)
+    # A collar the listing names (a shirt's, a camp collar, a coat's lapels, a coach jacket's classic collar):
+    # drawn turned down over its stand, whatever the photo's outline made of it (a camp collar lying open reads
+    # as a band, a peacoat's lapels as a funnel).
+    fit_cut = (fit_cut || {}).merge(collar: "shirt") if named_collar?(product, kind, style, fit_cut)
     {
       name: product[:name].presence || "Jacket",
       # The listing's words, for what the page reads of the make itself (a dress's hood and zip).
@@ -1398,6 +1402,13 @@ class GarmentImport
   def from_shoulder(size) = (size["sleeve"] - (size["shoulders"] || 46) / 2.0).round(2)
 
   SHIRT_COLLAR = /(?:classic|point|spread|camp|cuban|button[- ]down|pointed|notched) collar/i
+  NAMED_COLLAR = Regexp.union(SHIRT_COLLAR, /\b(?:notch(?:ed)?|peak(?:ed)?|wide|broad)?\s*lapels?\b|shawl collar|shirt collar|spread collar|convertible collar|polo collar|johnny collar|knit collar|(?:fold|turn)[- ]down collar|\bcollared\b|corduroy collar|contrast collar/i)
+  NOT_TURNED_DOWN = /stand(?:[- ]up)? collar|mandarin|band collar|funnel|mock[- ]?neck|turtle ?neck|collarless|crew ?neck|hood|shearling collar|fur collar/i
+  def named_collar?(product, kind, style, cut)
+    return false unless %w[top jacket coat].include?(kind) && !%w[hoodie dress tank].include?(style) && !cut&.dig(:hood)
+    words = product.values_at(:name, :description).join(" ")
+    words.match?(NAMED_COLLAR) && !words.match?(NOT_TURNED_DOWN)
+  end
   def top_style_of(product)
     style = product.values_at(:name, :category).each do |words|
       found = TOP_STYLES.find { |_, pattern| words.to_s.match?(pattern) }&.first
@@ -1431,6 +1442,8 @@ class GarmentImport
       return product[:description].to_s.match?(/long[- ]?sleeve/i) ? "shirt" : "shortshirt"
     end
     return "longsleeve" if product[:description].to_s.match?(/long[- ]?sleeve/i)
+    # (Or one the shop files under long-sleeve tees: Kith's "Bodyn Boatneck Tee".)
+    return "longsleeve" if product[:category].to_s.match?(/long[- ]?sleeve/i) && !product[:name].to_s.match?(/short[- ]?sleeve|\bs\/s\b/i)
     long_sleeves_in_photo?(product[:shape]) && !product[:name].to_s.match?(/short[- ]?sleeve|\bs\/s\b|\bt[- ]?shirt|\btee\b/i) ? "longsleeve" : style
   end
 

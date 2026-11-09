@@ -88,6 +88,9 @@ export function draftTop(styleName, size, body, cut = null) {
   // The neckline its listing names (a crew, a mock or turtle neck, a V, a scoop, a boat neck), over the
   // style's and the photo's: the photo can't tell a crew's rib from a mock neck's.
   if (cut?.neck && !style.shaped) style = necked(style, cut.neck)
+  // A collar the listing names (cut.collar "shirt": a camp collar, a coat's lapels): a stand with the collar
+  // turned down over it (stage.js's wearCollars), over what the photo's outline made of it.
+  if (cut?.collar === "shirt" && !style.shaped && style.collar !== "hood") style = { ...style, collar: "shirtstand" }
   const m = measures(style, size, body, cut)
   if (style.neck) m.frontNeck = style.neck
   if (style.neckSquare) m.neckSquare = style.neckSquare
