@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js"
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
-import { deltaE, linearOf } from "lib/colour"
+import { blockNear, deltaE, linearOf, middleColour } from "lib/colour"
 import { TracedStill } from "lib/trace"
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js"
@@ -2345,7 +2345,7 @@ export class FittingStage {
   // The middle colour (sRGB [r, g, b]) of `slot`'s cloth as the page shows it: the whole scene drawn as on
   // screen (its shading and contact shadows too, which a reading of the garment alone misses by half a stop),
   // from the front, and read where a second pass shows only that garment. Null for too little cloth seen.
-  async meterShot(slot) {
+  async meterShot(slot, hex = null) {
     const d = this.slots[slot]
     if (!d?.top?.mesh) return null
     if (d.fade) this.finishFade(d)
@@ -2391,7 +2391,8 @@ export class FittingStage {
       context.drawImage(bitmap, 0, 0)
       return context.getImageData(0, 0, size.width, size.height)
     }
-    return clothMedian(await pixels(await picture.image), await pixels(await mask.image))
+    const target = typeof hex === "string" ? [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)) : null
+    return clothMedian(await pixels(await picture.image), await pixels(await mask.image), target)
   }
 
   // The gain that draws `slot`'s cloth the colour `hex` (sRGB) under the stage's light. Sets it as it goes.
@@ -2407,7 +2408,7 @@ export class FittingStage {
     d.top.setMeter(gain)
     const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
     for (let pass = 0; pass < METER_PASSES; pass++) {
-      const seen = await this.meterShot(slot)
+      const seen = await this.meterShot(slot, hex)
       if (this.slots[slot] !== d) break
       if (!seen) break
       const lin = linearOf(seen)
@@ -2429,7 +2430,7 @@ export class FittingStage {
   async meterReport(slot) {
     const d = this.slots[slot], item = d?.top?.item
     if (!item?.photoCloth || !d.top.done) return null
-    const seen = await this.meterShot(slot)
+    const seen = await this.meterShot(slot, item.photoCloth)
     if (!seen) return null
     const target = [1, 3, 5].map(i => parseInt(item.photoCloth.slice(i, i + 2), 16))
     return { target, seen, deltaE: deltaE(target, seen), gain: d.meterGain ?? null }
@@ -3111,7 +3112,7 @@ function addShapeKey(mesh, name, offsets) {
 
 // The middle colour (sRGB, [r, g, b]) of a picture where a mask (the same size) is white, a pixel in from the
 // mask's edges, every other pixel. Null for too few.
-function clothMedian({ data, width, height }, mask) {
+function clothMedian({ data, width, height }, mask, target = null) {
   const on = (x, y) => x >= 0 && y >= 0 && x < width && y < height && mask.data[4 * (y * width + x)] > 128
   const s = [[], [], []]
   for (let y = 1; y < height - 1; y += 2) for (let x = 1; x < width - 1; x += 2) {
@@ -3120,7 +3121,9 @@ function clothMedian({ data, width, height }, mask) {
     s[0].push(data[i]); s[1].push(data[i + 1]); s[2].push(data[i + 2])
   }
   if (s[0].length < 150) return null
-  return s.map(v => { v.sort((a, b) => a - b); return v[v.length >> 1] })
+  // (A garment in two colours far apart: the block nearer the photo's cloth, see blockNear.)
+  // (Its middle colour without what's far from it: see middleColour.)
+  return middleColour(blockNear(s, target))
 }
 const METER_LAYER = 7
 const METER_MASK = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, toneMapped: false })

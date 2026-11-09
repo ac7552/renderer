@@ -17,3 +17,48 @@ export function deltaE(a, b) {
   const p = lab(a), q = lab(b)
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
 }
+
+// A garment in two colours far apart (a varsity's navy body and white sleeves), drawn: metered on its whole
+// cloth, the white pulled its middle colour up and the meter darkened everything to bring it down to the navy
+// the photo's cloth was read as. samples: [[r...], [g...], [b...]] (sRGB, 0 to 255); target: the photo's cloth
+// ([r, g, b]). Split two ways (two means, a few rounds from the darkest and lightest tenth); when the two
+// colours are BLOCKS_APART or more apart and the lesser is BLOCKS_SHARE or more of them, only the block nearer
+// the target is kept. Otherwise the samples as they are.
+const BLOCKS_APART = 140, BLOCKS_SHARE = 0.12
+export function blockNear(samples, target) {
+  const n = samples[0].length
+  if (!target || n < 40) return samples
+  const px = k => [samples[0][k], samples[1][k], samples[2][k]]
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+  const order = Array.from({ length: n }, (_, k) => k).sort((a, b) => samples[0][a] + samples[1][a] + samples[2][a] - samples[0][b] - samples[1][b] - samples[2][b])
+  let c = [px(order[Math.floor(n * 0.1)]), px(order[Math.floor(n * 0.9)])]
+  const side = new Uint8Array(n)
+  let count = [0, 0]
+  for (let round = 0; round < 6; round++) {
+    const sum = [[0, 0, 0], [0, 0, 0]]
+    count = [0, 0]
+    for (let k = 0; k < n; k++) {
+      const p = px(k), s = dist(p, c[0]) <= dist(p, c[1]) ? 0 : 1
+      side[k] = s; count[s]++
+      for (let ch = 0; ch < 3; ch++) sum[s][ch] += p[ch]
+    }
+    c = c.map((old, s) => (count[s] ? sum[s].map(v => v / count[s]) : old))
+  }
+  if (dist(c[0], c[1]) < BLOCKS_APART || Math.min(...count) < BLOCKS_SHARE * n) return samples
+  const keep = dist(c[0], target) <= dist(c[1], target) ? 0 : 1
+  return samples.map(channel => channel.filter((_, k) => side[k] === keep))
+}
+
+// The middle colour of samples ([[r...], [g...], [b...]]): each channel's median, then again over the samples
+// within TRIM of it (when half or more are). A cream shirt's red embroidery, a tenth of it, pulled its green
+// and blue medians down more than its red, and the meter's white balance, making up, drew the cream mint.
+const TRIM = 80
+export function middleColour(samples) {
+  const median = v => { const s = [...v].sort((a, b) => a - b); return s[s.length >> 1] }
+  const m = samples.map(median)
+  const n = samples[0].length
+  const near = []
+  for (let k = 0; k < n; k++) if (Math.hypot(samples[0][k] - m[0], samples[1][k] - m[1], samples[2][k] - m[2]) <= TRIM) near.push(k)
+  if (near.length < n / 2 || near.length === n) return m
+  return samples.map(channel => median(near.map(k => channel[k])))
+}
