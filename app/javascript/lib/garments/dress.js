@@ -355,7 +355,10 @@ export function coveredPoints(inner, outer, { reach = 0.035, gap = 0.003, keep =
   const field = outer.drape.field
   const a = inner.geometry.attributes.position.array
   const b = outer.geometry.attributes.position.array, normals = outer.geometry.attributes.normal.array
-  const cell = reach, grid = new Map()
+  // (A sleeve under a jacket's may stand out from the arm further than the body's cloth does from the body: a
+  // shirt's short twill sleeve. Sleeves are looked for twice as far.)
+  const sleeveReach = 2 * reach
+  const cell = sleeveReach, grid = new Map()
   const key = (x, y, z) => `${x},${y},${z}`
   // Not near the outer garment's edges (an open front, a hem, a cuff): what shows past them is meant to.
   // How far (m) each point of the outer garment is from its nearest free edge (a hem, a cuff, an open
@@ -392,7 +395,8 @@ export function coveredPoints(inner, outer, { reach = 0.035, gap = 0.003, keep =
         if (d < nearest) { nearest = d; near = j }
       }
     }
-    if (near < 0 || nearest > reach * reach) continue
+    const sleeve = (part === 1 || part === 2) && !inner.bottoms
+    if (near < 0 || nearest > (sleeve ? sleeveReach * sleeveReach : reach * reach)) continue
     // The outer cloth's normal, turned to face away from the body (a piece's normals may face either way).
     let nx = normals[3 * near], ny = normals[3 * near + 1], nz = normals[3 * near + 2]
     if (field) {
@@ -412,6 +416,10 @@ export function coveredPoints(inner, outer, { reach = 0.035, gap = 0.003, keep =
     // that lifts away (a hoodie's front, over its pocket), the cloth seen beneath it is meant to show.
     if (free[near] < 2 * Math.sqrt(nearest) + EDGE_MARGIN) continue
     if (out > -gap && aside < SIDEWAYS) covered[i] = 1
+    // A sleeve under a jacket's sleeve, short of its cuff, is inside it whichever side of it the drape left it
+    // (the jacket's sleeves don't collide with it, see collisionBody): a shirt's short sleeve standing out
+    // stiffly from the arm showed through a coat's in white patches.
+    else if (sleeve) covered[i] = 1
   }
   return covered
 }

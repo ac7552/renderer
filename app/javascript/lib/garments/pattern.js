@@ -74,6 +74,8 @@ const RIB_GIVE = 1.15
 const SLEEVE_REACH = 2
 const SLEEVE_BUNCH = 0.25
 const SLEEVE_BUNCH_MOST = 4
+// The least room a garment worn over a top has round it (cm): see overLayer.
+const LAYER_ROOM = 4
 const CUFFS = { rib: { height: 7, stretch: 0.74, fabric: "rib" }, band: { height: 5, stretch: 0.92, fabric: "main" } }
 const HEMS = { rib: { height: 6.5, stretch: 0.86, fabric: "rib" }, band: { height: 4.5, stretch: 0.98, fabric: "main" } }
 
@@ -262,7 +264,7 @@ export function measures(style, size, body, cut = null) {
   // to the hem).
   const over = fitted ? 1.06 : 1.1
   const upperArm = (body.upperArm ?? body.bicep ?? 32) * over
-  const bicep = fitted ? Math.max((body.bicep ?? 32) + 4, chest * 0.3, upperArm) : Math.max((body.bicep ?? 32) + (style.sleeve === "short" ? 7 : 9), chest * 0.34, upperArm)
+  const bicep = Math.max(fitted ? Math.max((body.bicep ?? 32) + 4, chest * 0.3, upperArm) : Math.max((body.bicep ?? 32) + (style.sleeve === "short" ? 7 : 9), chest * 0.34, upperArm), (body.under?.bicep ?? 0) + (body.under ? LAYER_ROOM : 0))
   let opening = style.sleeve === "short" ? null : fitted ? Math.max((body.wrist ?? 18) + (cuff ? 5 : 8), chest * 0.19) : Math.max((body.wrist ?? 18) + (cuff ? 9 : 12), chest * 0.21)
   if (opening !== null && body.forearm && body.elbow) {
     const underarm = (body.armpit ?? 19) - 4.4 + 1.5   // the cap's height: about the armhole's depth below the shoulder point
@@ -322,6 +324,20 @@ export function roundAtHem(body, length) {
   if (length <= waistAt) return waist
   if (length >= hipAt) return Math.max(waist, hips)
   return waist + (Math.max(waist, hips) - waist) * ((length - waistAt) / (hipAt - waistAt))
+}
+
+// The body as a garment worn over another sees it (a jacket or coat over a top): no smaller round the chest
+// than the top under it is cut, with LAYER_ROOM over that, nor narrower at the shoulders; the top's sleeve
+// width as under.bicep (measures keeps the sleeve that much wider). A too-small coat cut only round the body
+// had the shirt under it through its sleeves and shoulders. under: the top's measures (measures'), or null.
+export function overLayer(body, under) {
+  if (!under || !body) return body
+  return {
+    ...body,
+    chest: Math.max(body.chest ?? 0, (under.chest ?? 0) + LAYER_ROOM),
+    shoulders: Math.max(body.shoulders ?? 0, under.shoulders ?? 0),
+    under: { bicep: under.bicep ?? 0 }
+  }
 }
 
 // One body panel, front or back, its edges anticlockwise seen from outside.

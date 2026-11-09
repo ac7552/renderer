@@ -12,6 +12,7 @@ import { N8AOPass } from "n8ao"
 import { drawnBody, drawnSize, fitBody, fitJacket, fitTrousers } from "lib/body_fit"
 import { DrapedTop, TUCKABLE, bodySnapshot, coveredPoints, garmentWeights, prepareBody, skinPoints, vertexNormals } from "lib/garments/dress"
 import { bodyFrame } from "lib/garments/body"
+import { overLayer } from "lib/garments/pattern"
 import { RemoteDrape } from "lib/garments/remote_drape"
 import { hangerSpec } from "lib/garments/hanger"
 import { HangTrial, TRIALS, TRIAL_ON } from "lib/garments/silhouette"
@@ -1173,7 +1174,8 @@ export class FittingStage {
     // usual gap clears it; more would stretch the jacket's hem round the hips, to spring back and ride up).
     if (slot === "outer" && this.slots.top && this.order !== TUCKED_LAYERS) frame.gap = 0.03
     // (Cut round the body as the mannequin is drawn, not past what it could reach: see drawnBody.)
-    const measures = drawnBody(this.fitted, this.measures)
+    // (And a jacket or coat round the top under it, as cut: see overLayer.)
+    const measures = overLayer(drawnBody(this.fitted, this.measures), slot === "outer" ? this.slots.top?.top?.pattern?.measures ?? null : null)
     const top = new DrapedTop({ item, body: rest.body, frame, field, measures, renderer: this.renderer })
     // Sewn in the worker, when it's there (not over shoes yet: their outlines are worked out here).
     if (this.remote && !this.remote.failed && !this.feet.meshes.length) {

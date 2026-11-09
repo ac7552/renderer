@@ -73,3 +73,15 @@ test("a sleeve much longer than the arm is drawn to the hand's base and bunched 
   const fits = measures(STYLES.hoodie, { chest: 129, sleeve: 59, length: 66 }, woman)
   assert.equal(fits.sleeve, 59 - 6.5)
 })
+
+test("a coat over a top is cut round the top as it's cut, its sleeves round the top's sleeves", async () => {
+  const { overLayer } = await import("lib/garments/pattern")
+  const big = { chest: 127, waist: 117, hips: 119, shoulders: 53, arm: 71, height: 193, neck: 43, armpit: 22.7, bicep: 35.3, upperArm: 34.4, wrist: 16.3 }
+  const shirt = measures(STYLES.shortshirt, { chest: 88, shoulders: 36.1, sleeve: 24.7, length: 66 }, big)
+  const coat = measures(STYLES.coat, { chest: 88, shoulders: 36, sleeve: 60, length: 80 }, overLayer(big, shirt))
+  assert.ok(coat.chest >= shirt.chest + 4 + 2 - 0.01, `coat ${coat.chest} over the shirt's ${shirt.chest}`)
+  assert.ok(coat.shoulders >= shirt.shoulders)
+  assert.ok(coat.bicep >= shirt.bicep + 4, `coat sleeve ${coat.bicep} over the shirt's ${shirt.bicep}`)
+  // Nothing under it: the body as it is.
+  assert.equal(overLayer(big, null), big)
+})
