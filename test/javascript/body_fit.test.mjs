@@ -2,7 +2,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { drawnSize, fitBody, fitJacket, fitTrousers } from "../../app/javascript/lib/body_fit.js"
+import { drawnBody, drawnSize, fitBody, fitJacket, fitTrousers } from "../../app/javascript/lib/body_fit.js"
 
 const calibration = JSON.parse(readFileSync(new URL("../../public/models/mannequin.json", import.meta.url)))
 
@@ -88,4 +88,18 @@ test("a coat is drawn outside the jacket under it", () => {
   // At least a centimetre round (lengthening a coat takes a little off its waist); the page also stands a
   // coat out a little further over a jacket.
   for (const part of ["chest", "waist"]) assert.ok(coat[part] >= jacket[part] + 1, `${part}: ${coat[part]} over ${jacket[part]}`)
+})
+
+test("drawnBody: a measurement the mannequin couldn't reach is cut round as far as it went, the rest as given", () => {
+  const given = { ...calibration.body, waist: calibration.body.waist * 1.8, hips: calibration.body.hips * 1.5 }
+  const fit = fitBody(calibration, given)
+  assert.ok(fit.limited.includes("waist"))
+  const drawn = drawnBody(fit, given)
+  assert.ok(drawn.waist < given.waist - 5, `waist ${drawn.waist} of ${given.waist}`)
+  assert.ok(Math.abs(drawn.waist - predicted(fit, "waist")) < 0.01)
+  assert.equal(drawn.height, given.height)
+  if (!fit.limited.includes("chest")) assert.equal(drawn.chest, given.chest)
+  // Nothing limited: the measurements as given.
+  const easy = fitBody(calibration, calibration.body)
+  assert.equal(drawnBody(easy, calibration.body), calibration.body)
 })

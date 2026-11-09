@@ -91,13 +91,26 @@ export function draftBottoms(styleName, size, body, cut = null) {
   return { panels, seams, style: styleName, kind: "bottoms", closure: null, fabric: style.fabric, measures: m }
 }
 
+// The least room pants are cut with round the body (cm), and the least share of it a cloth that stretches is
+// cut to: see bottomMeasures.
+const TIGHT_EASE = 2
+const STRETCH_LEAST = 0.94
+
 // The finished measurements to cut to: the chart's, and from the body what it doesn't give.
 export function bottomMeasures(styleName, size, body, cut = null) {
   const style = styleOf(styleName, cut)
   const hips = body.hips ?? body.waist + 14
-  const waist = size.waist ?? body.waist + 2
-  const seat = Math.max(size.seat ?? hips + 8, waist + 4)
-  const thigh = Math.max(size.thigh ?? seat * 0.6, seat * 0.5)
+  // Never cut smaller round than the body it's drawn on (a stretch cloth, a band that gives: down to
+  // STRETCH_LEAST of it): a size too small is drawn tight on the body, the fit saying by how much. Cut to a
+  // chart's seat 40 cm under the body's hips, a pair of trousers couldn't go round them and its legs folded
+  // in on one leg, the body all through them. The waist sits where the body is as round as it (riseFor):
+  // no smaller than the body is anywhere from the hips up to the natural waist.
+  const gives = Boolean(cut?.stretch || cut?.elastic || style.band.stretch < 0.9 || styleName === "leggings")
+  const least = round => (gives ? round * STRETCH_LEAST : round + TIGHT_EASE)
+  // (A waist a little under the body's sits a little lower, where it's as round: no room added there.)
+  const waist = Math.max(size.waist ?? body.waist + 2, body.waist > 0 ? Math.min(body.waist, hips) * (gives ? STRETCH_LEAST : 1) : 0)
+  const seat = Math.max(size.seat ?? hips + 8, waist + 4, hips > 0 ? least(hips) : 0)
+  const thigh = Math.max(size.thigh ?? seat * 0.6, seat * 0.5, body.thigh > 0 ? least(body.thigh) : 0)
   const opening = Math.max(size.leg_opening ?? thigh * 0.65, 18)
   const knee = size.knee ?? Math.max(opening, thigh * 0.55 + opening * 0.45)
   // Where the pants sit: at the height where the body is as round as their waist (a low-rise jean sits on

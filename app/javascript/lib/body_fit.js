@@ -67,6 +67,16 @@ export function fitBody(calibration, body) {
   }
 }
 
+// The body as the mannequin is drawn (cm): the measurements given, but those it couldn't go as far as (fitBody's
+// limited) as far as it went. A garment is cut and draped round the body that's there: cut round a 137 cm hip
+// the mannequin couldn't reach, a hoodie's hem hung wide of its hips and round its hands.
+export function drawnBody(fitted, measures) {
+  if (!fitted?.limited?.length || !measures) return measures
+  const out = { ...measures }
+  for (const key of fitted.limited) if (Number.isFinite(fitted.body?.[key])) out[key] = fitted.body[key] * fitted.scale
+  return out
+}
+
 // size: one size from a jacket or coat chart, in cm (any value may be null). Returns ease influences.
 // layer: which modelled jacket draws it, the suit's ("jacket") or the casual one ("casual").
 // over: what the jacket under a coat measures as drawn (see drawnSize), so the coat stays outside it.

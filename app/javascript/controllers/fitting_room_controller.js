@@ -34,6 +34,8 @@ const EXAMPLES_CM = {
   women: { chest: 91.5, waist: 74, shoulders: 39.5, arm: 58, height: 165, hips: 99, inseam: 76, foot: 24, ball: 9 }
 }
 const REQUIRED = ["chest", "waist", "shoulders", "arm", "height"]
+// How much the hips are guessed to grow for each cm of waist, when they aren't given (see update).
+const HIPS_PER_WAIST = 0.6
 
 // What the page calls each kind of item (the API's names are top, jacket, coat and trousers).
 const KINDS = { top: "Top", jacket: "Jacket", coat: "Coat", trousers: "Pants", shoes: "Shoes", socks: "Socks", belt: "Belt" }
@@ -1321,7 +1323,9 @@ export default class extends Controller {
     // long dress cut for real hips slides off it.
     const shape = Object.fromEntries(Object.entries(given).map(([k, v]) => [k, toCm(v, this.unit)]))
     const example = this.example
-    shape.hips ??= example.hips * (shape.waist ?? example.waist) / example.waist
+    // (Hips grow more slowly than the waist: about 0.6 cm for each cm of it. In proportion, a 46 in waist
+    // guessed 54 in hips, wider than the hanging arms, and every sleeve was pressed in between the two.)
+    shape.hips ??= Math.max(example.hips * 0.8, example.hips + HIPS_PER_WAIST * ((shape.waist ?? example.waist) - example.waist))
     shape.inseam ??= example.inseam * (shape.height ?? example.height) / example.height
     this.limited = this.stage.setBody(shape)
     this.timer = setTimeout(() => this.fetchFits(given), 150)

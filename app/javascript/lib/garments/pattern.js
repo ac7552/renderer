@@ -63,6 +63,17 @@ const BANDS = {
   // (by `fall`), so it lies flat round the neck instead of standing up.
   polo: { height: 6.5, stretch: 1, fabric: "rib", fall: 1.3 }
 }
+// The least room a top is cut with round the body (cm), and the least share of it a knit that stretches is cut
+// to: see measures.
+const TIGHT_EASE = 2
+const STRETCH_LEAST = 0.94
+// How far a rib hem band stretches on round the body where it falls, at the most (a share of its own length).
+const RIB_GIVE = 1.15
+// A sleeve longer than the arm: drawn to SLEEVE_REACH (cm) past the wrist, and SLEEVE_BUNCH of the rest (no more
+// than SLEEVE_BUNCH_MOST cm) gathered above its cuff (see measures).
+const SLEEVE_REACH = 2
+const SLEEVE_BUNCH = 0.25
+const SLEEVE_BUNCH_MOST = 4
 const CUFFS = { rib: { height: 7, stretch: 0.74, fabric: "rib" }, band: { height: 5, stretch: 0.92, fabric: "main" } }
 const HEMS = { rib: { height: 6.5, stretch: 0.86, fabric: "rib" }, band: { height: 4.5, stretch: 0.98, fabric: "main" } }
 
@@ -222,13 +233,27 @@ export function measures(style, size, body, cut = null) {
   // A dress's sleeves are as long as its chart says (a long-sleeved dress has them to the wrist).
   if (style.shaped && size.sleeve > 40) style = { ...style, sleeve: "long" }
   const fitted = cut?.fit === "fitted" && !style.shaped
-  const chest = size.chest ?? body.chest + (fitted ? Math.min(style.ease, 2) : style.ease)
+  // Never cut smaller round than the body it's drawn on (TIGHT_EASE over it at the least; a knit that stretches,
+  // a cut that says so, down to STRETCH_LEAST of it), nor narrower across the shoulders than its shoulders: a
+  // size too small is drawn stretched tight over the body (the fit says by how much), not as a smaller garment
+  // the body can't be inside. Cut to a chart's chest 20 cm under the body's, a hoodie's armholes sat inside
+  // the shoulders, its sleeves were pulled in under the body pieces and the figure showed through between them.
+  const least = !(body.chest > 0) ? 0 : cut?.stretch || fitted ? body.chest * STRETCH_LEAST : body.chest + TIGHT_EASE
+  const chest = Math.max(size.chest ?? body.chest + (fitted ? Math.min(style.ease, 2) : style.ease), least)
   const cuff = style.cuffs ? CUFFS[style.cuffs] : null
   const hemBand = style.hem ? HEMS[style.hem] : null
-  const shoulders = size.shoulders ?? Math.min(body.shoulders + (style.sleeve === "short" ? 2 : 3), chest / 2.15)
+  const shoulders = Math.max(size.shoulders ?? Math.min(body.shoulders + (style.sleeve === "short" ? 2 : 3), chest / 2.15), body.shoulders > 0 ? Math.min(body.shoulders, chest / 2.15) : 0)
   const length = (size.length ?? body.height * style.length) - (hemBand ? hemBand.height - 0.5 : 0)
   let sleeve = size.sleeve ?? (style.sleeve === "short" ? 19 + (chest - 100) / 8 : body.arm + 1.5)
   if (cuff) sleeve -= cuff.height - 0.5   // a chart's sleeve runs to the end of the cuff
+  // A sleeve much longer than the arm is worn pushed up, bunched above the wrist: it's drawn to the base of the
+  // hand (SLEEVE_REACH past the wrist) and a share of the rest, the fit saying how much too long it is. Drawn
+  // its whole length, its cuff hung past the hand, was held there (the drape's stayOnArms) and folded over
+  // itself, a dark flap of its inside with the hand through it.
+  if (body.arm > 0 && style.sleeve !== "short") {
+    const end = sleeve + (cuff ? cuff.height - 0.5 : 0), reach = body.arm + SLEEVE_REACH
+    if (end > reach) sleeve -= end - reach - Math.min(SLEEVE_BUNCH_MOST, (end - reach) * SLEEVE_BUNCH)
+  }
   const roomy = Math.max(0, chest - body.chest)
   // Round the arm as it really is (body.js): a sleeve is never cut smaller than the arm it goes on. A fitted
   // knit gets 6% over it (it stretches, but stretched past its mesh it tears and shows skin); a loose sleeve
@@ -262,7 +287,7 @@ export function measures(style, size, body, cut = null) {
     sleeve,
     // (An open hem, a tee's, is never cut much narrower round than the hips it falls to, or no wider than
     // its chest: cut to a women's waist, a fitted tee's hem rode up over the hips and read as cropped.)
-    hem: shaped ? Math.max(chest, shaped.hips) * 1.22 : hemBand ? Math.min(size.waist ?? chest, chest) : Math.max(Math.min(size.waist ?? chest, chest), Math.min(chest, (body.hips ?? 0) * 0.92)) * 0.99,
+    hem: shaped ? Math.max(chest, shaped.hips) * 1.22 : Math.max(hemBand ? Math.min(size.waist ?? chest, chest) : Math.max(Math.min(size.waist ?? chest, chest), Math.min(chest, (body.hips ?? 0) * 0.92)) * 0.99, roundAtHem(body, length) * (hemBand ? 1 / (hemBand.stretch * RIB_GIVE) : 0.92)),
     neckWidth,
     frontNeck: { stand: 6, shirtstand: 7, rib: 6, turtle: 5, crew: 8, hood: 8 }[style.collar] ?? 9,
     backNeck: 2,
@@ -284,6 +309,19 @@ export function measures(style, size, body, cut = null) {
     if (photo.opening > 0 && opening !== null) m.opening = Math.max(opening, Math.min(photo.opening, m.bicep))
   }
   return m
+}
+
+// How far round the body is where a top's hem falls, `length` (cm) down from the high point of the shoulder:
+// its waist above the waist's height (about 0.235 of its height), its hips from their height (0.335), between
+// the two in between. 0 when the body gives neither. A hem cut no smaller than it (a rib band's stretch aside)
+// stays down over the body instead of riding up over a belly or hips wider than the chart's waist.
+export function roundAtHem(body, length) {
+  const waist = body.waist ?? 0, hips = body.hips ?? waist
+  if (!(waist > 0) || !(body.height > 0)) return 0
+  const waistAt = body.height * 0.235, hipAt = body.height * 0.335
+  if (length <= waistAt) return waist
+  if (length >= hipAt) return Math.max(waist, hips)
+  return waist + (Math.max(waist, hips) - waist) * ((length - waistAt) / (hipAt - waistAt))
 }
 
 // One body panel, front or back, its edges anticlockwise seen from outside.
@@ -612,7 +650,7 @@ const NECK_DEPTH = { round: 9, high: 3, straight: 11, scoop: 15, plunge: 24, cow
 // top edge are finished edges (no bands); only its side and shoulder (strap) seams are sewn.
 function draftDress(size, body, cut) {
   const style = { ...STYLES.dress, fabric: DRESS_CLOTH[cut.fabric] ?? "jersey" }
-  const m = measures({ ...style, sleeve: "short" }, size, body)
+  const m = measures({ ...style, sleeve: "short" }, size, body, cut)
   shapeSkirt(m, size, body, cut)
   const { height: flounce, count: flounces } = flounceFor(m, cut)
   m.length -= flounce * flounces

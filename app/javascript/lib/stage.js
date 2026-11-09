@@ -9,7 +9,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js"
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js"
 import { N8AOPass } from "n8ao"
-import { drawnSize, fitBody, fitJacket, fitTrousers } from "lib/body_fit"
+import { drawnBody, drawnSize, fitBody, fitJacket, fitTrousers } from "lib/body_fit"
 import { DrapedTop, TUCKABLE, bodySnapshot, coveredPoints, garmentWeights, prepareBody, skinPoints, vertexNormals } from "lib/garments/dress"
 import { bodyFrame } from "lib/garments/body"
 import { RemoteDrape } from "lib/garments/remote_drape"
@@ -1172,10 +1172,12 @@ export class FittingStage {
     // A jacket over a top starts clear of the top's cloth (a tucked top lies close round the waist, so the
     // usual gap clears it; more would stretch the jacket's hem round the hips, to spring back and ride up).
     if (slot === "outer" && this.slots.top && this.order !== TUCKED_LAYERS) frame.gap = 0.03
-    const top = new DrapedTop({ item, body: rest.body, frame, field, measures: this.measures, renderer: this.renderer })
+    // (Cut round the body as the mannequin is drawn, not past what it could reach: see drawnBody.)
+    const measures = drawnBody(this.fitted, this.measures)
+    const top = new DrapedTop({ item, body: rest.body, frame, field, measures, renderer: this.renderer })
     // Sewn in the worker, when it's there (not over shoes yet: their outlines are worked out here).
     if (this.remote && !this.remote.failed && !this.feet.meshes.length) {
-      top.remote = this.remote.sew(++this.remoteIds, { item, body: rest.body, over, egg: rest.egg, measures: this.measures, arms: slot !== "bottom" })
+      top.remote = this.remote.sew(++this.remoteIds, { item, body: rest.body, over, egg: rest.egg, measures, arms: slot !== "bottom" })
     }
     if (this.worn) for (const material of [top.materials.main, top.materials.rib]) this.projectOnto(material)
     top.mesh.visible = false

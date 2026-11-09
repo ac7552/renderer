@@ -39,6 +39,7 @@ const HEM_WEIGHT = 1.6     // its mass, as a share of the cloth's
 const FRAME = 1 / 60
 const CUFF_PAST_WRIST = 0.03   // m: how far over the hand a cuff can sit, at the most
 const HAND_REACH = 0.12        // m: cloth further from the arm's line than this isn't on the arm
+const CUFF_EASE = 0.08         // m: how far up the sleeve a cuff held at the hand eases the sleeve back (see stayOnArms)
 const SUBSTEPS = 10
 // The cloth counts as still once its points move less than this in a frame on average (metres),
 // STILL_FRAMES frames running: a hem swinging is still settling; a few hundredths of a millimetre is noise.
@@ -515,10 +516,6 @@ export class Drape {
     }
   }
 
-  // A sleeve's cuff stops at the base of the hand: a cuff is narrower than the hand is wide, so a sleeve
-  // longer than the arm gathers above it (as a long knit sleeve scrunches) instead of sliding on over the
-  // hand. Sleeve and cuff points past the wrist by more than CUFF_PAST_WRIST come back up the arm to there,
-  // and stay put, as a hem does on the floor.
   // Which arm each simulated point's piece goes on (1 the left, -1 the right, 0 not a sleeve).
   sleeveSides() {
     const map = this.map
@@ -530,22 +527,36 @@ export class Drape {
     return this.simArmSide
   }
 
+  // A sleeve's cuff stops at the base of the hand: a cuff is narrower than the hand is wide, so a sleeve
+  // longer than the arm gathers above it (as a long knit sleeve scrunches) instead of sliding on over the
+  // hand. When any of a sleeve's points is past the wrist by more than CUFF_PAST_WRIST, the end of that sleeve
+  // comes back up the arm by as much, all of it together, eased off over CUFF_EASE above (which gathers).
+  // Moving only the points past the limit, each by its own overshoot (and holding them there), folded the
+  // cuff's edge back over itself where the hand tilts it: a dark flap of its inside, the hand through it.
   stayOnArms() {
-    const { p, x } = this
+    const { p } = this
     const side = this.sleeveSides()
     const n = p.length / 3
-    for (let i = 0; i < n; i++) {
-      if (!side[i]) continue
-      const arm = side[i] > 0 ? this.arms.L : this.arms.R
+    const at = this.armAt ??= new Float32Array(n)
+    for (const s of [1, -1]) {
+      const arm = s > 0 ? this.arms.L : this.arms.R
       const limit = arm.lengths[2] + CUFF_PAST_WRIST
-      const { t, distance } = arm.locate([p[3 * i], p[3 * i + 1], p[3 * i + 2]])
-      if (t <= limit || distance > HAND_REACH) continue
+      let over = 0
+      for (let i = 0; i < n; i++) {
+        if (side[i] !== s) continue
+        const { t, distance } = arm.locate([p[3 * i], p[3 * i + 1], p[3 * i + 2]])
+        at[i] = distance > HAND_REACH ? -Infinity : t
+        if (t > limit && distance <= HAND_REACH) over = Math.max(over, t - limit)
+      }
+      if (over <= 0) continue
       const { direction } = arm.along(limit)
-      const back = t - limit
-      p[3 * i] -= direction[0] * back; p[3 * i + 1] -= direction[1] * back; p[3 * i + 2] -= direction[2] * back
-      p[3 * i] = x[3 * i] + (p[3 * i] - x[3 * i]) * 0.3
-      p[3 * i + 1] = x[3 * i + 1] + (p[3 * i + 1] - x[3 * i + 1]) * 0.3
-      p[3 * i + 2] = x[3 * i + 2] + (p[3 * i + 2] - x[3 * i + 2]) * 0.3
+      const from = limit - CUFF_EASE
+      for (let i = 0; i < n; i++) {
+        if (side[i] !== s || at[i] <= from) continue
+        const u = Math.min(1, (at[i] - from) / (limit + over - from))
+        const back = over * u * u * (3 - 2 * u)
+        p[3 * i] -= direction[0] * back; p[3 * i + 1] -= direction[1] * back; p[3 * i + 2] -= direction[2] * back
+      }
     }
   }
 
