@@ -495,7 +495,12 @@ export class Drape {
       let r = Math.floor((y - foot.floor) / foot.step)
       while (r + 1 < foot.hulls.length && foot.hulls[r + 1] && insideHull(foot.hulls[r + 1], px, pz)) r++
       const up = foot.floor + (r + 1) * foot.step - y
-      if (up < best) {
+      // In a shoe (its outline knows the ankle and which way the toe points), the leg rests on the shoe's top
+      // only over the forefoot (the instep, the toe). Beside and behind the ankle the top is the shoe's opening
+      // round the leg and its collar's thin edge: a hem lifted onto it piles there in a ring, where it should
+      // hang down outside the shoe.
+      const onTop = foot.ankle ? (px - foot.ankle[0]) * foot.forward[0] + (pz - foot.ankle[2]) * foot.forward[1] > foot.reach : true
+      if (onTop && up < best) {
         p[3 * i + 1] = y + up + thick
         // Resting on it, it stays put rather than sliding off (as on the floor).
         p[3 * i] = this.x[3 * i] + (px - this.x[3 * i]) * 0.3

@@ -1030,6 +1030,29 @@ export function sockGeometry(body, frame, side, styleName) {
 
 // What pants' hems must stay off where shoes are worn (as body.js's footHull is for bare feet): each
 // shoe's outline in 1 cm slices from the floor to its collar. points: [[x, y, z], ...] of one shoe.
+// A shoe as cloth lies on it: its outside only. Its lining and the insides of its collar and tongue face in,
+// towards the leg; in the collision field they read as skin facing the other way, and a hem hanging beside the
+// shoe was "inside" them, pushed in through the shoe, across the opening and out the other side, towards the
+// other leg (the pants' legs crossed over). Kept: the triangles facing away from the shoe's middle (seen from
+// above), or up. positions: the shoe's points (x, y, z flat); index: its triangles. Returns the kept triangles.
+export function outerShell(positions, index) {
+  const p = positions, n = p.length / 3
+  let cx = 0, cz = 0
+  for (let i = 0; i < n; i++) { cx += p[3 * i]; cz += p[3 * i + 2] }
+  cx /= n; cz /= n
+  const kept = []
+  for (let t = 0; t < index.length; t += 3) {
+    const a = 3 * index[t], b = 3 * index[t + 1], c = 3 * index[t + 2]
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    const len = Math.hypot(nx, ny, nz) || 1
+    const mx = (p[a] + p[b] + p[c]) / 3 - cx, mz = (p[a + 2] + p[b + 2] + p[c + 2]) / 3 - cz
+    if (ny / len > 0.5 || nx * mx + nz * mz > 0) kept.push(index[t], index[t + 1], index[t + 2])
+  }
+  return Uint32Array.from(kept)
+}
+
 export function outlineOf(points, floor) {
   const step = 0.01
   let topY = floor

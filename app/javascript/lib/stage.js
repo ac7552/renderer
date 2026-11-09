@@ -15,7 +15,7 @@ import { bodyFrame } from "lib/garments/body"
 import { RemoteDrape } from "lib/garments/remote_drape"
 import { hangerSpec } from "lib/garments/hanger"
 import { HangTrial, TRIALS, TRIAL_ON } from "lib/garments/silhouette"
-import { accessoryMaterial, beltGeometry, buckleGeometry, heelRise, heelStemGeometry, outlineOf, photoShoeGeometry, riseForHeel, shoeGeometry, sockGeometry, strapGeometry, wrapShoePhoto } from "lib/garments/accessories"
+import { accessoryMaterial, beltGeometry, buckleGeometry, heelRise, heelStemGeometry, outerShell, outlineOf, photoShoeGeometry, riseForHeel, shoeGeometry, sockGeometry, strapGeometry, wrapShoePhoto } from "lib/garments/accessories"
 import { shoeTexture, viewTexture } from "lib/garments/print"
 import { lastFor, shaftShare } from "lib/garments/lasts"
 import { hullGeometry } from "lib/garments/hull"
@@ -799,15 +799,16 @@ export class FittingStage {
     this.feet.texture = texture
   }
 
-  // Each shoe's outline as it stands now, for pants' hems to stay off (in place of the bare feet's).
-  shoeOutlines(floor) {
+  // Each shoe's outline as the snapshot took it, for pants' hems to stay off (in place of the bare feet's).
+  // shoes: { L, R }, each shoe's points in the world (snapshotNow's). (Not the shoes as they stand on screen:
+  // pants are sewn in the sewing pose, the legs apart, and outlines from the pose shown put each shoe under the
+  // other leg's hem, which fell into its own shoe and crossed the legs over.)
+  shoeOutlines(floor, shoes) {
+    if (!shoes?.L || !shoes?.R) return null
     const outlines = {}
     for (const side of ["L", "R"]) {
-      const mesh = this.feet.shoes[side]
-      if (!mesh) return null
-      mesh.updateWorldMatrix(true, false)
-      const a = mesh.geometry.attributes.position, v = new THREE.Vector3(), points = []
-      for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).applyMatrix4(mesh.matrixWorld); points.push([v.x, v.y, v.z]) }
+      const p = shoes[side], points = []
+      for (let i = 0; i < p.length; i += 3) points.push([p[i], p[i + 1], p[i + 2]])
       outlines[side] = outlineOf(points, floor)
     }
     return outlines
@@ -816,8 +817,22 @@ export class FittingStage {
   // The body as cloth sees it (see prepareBody), standing in shoes when they're worn.
   prepare(snapshot, options) {
     const prepared = prepareBody(snapshot.body, snapshot.egg, snapshot.over, options)
-    const shoes = this.shoeOutlines(prepared.frame.floor)
-    if (shoes && prepared.frame.feet) prepared.frame.feet = shoes
+    const shoes = this.shoeOutlines(prepared.frame.floor, snapshot.shoes)
+    if (shoes && prepared.frame.feet) {
+      // Each shoe's ankle and the way its toe points (to its sole's furthest point from the ankle), for pants
+      // to rest on its top only over the forefoot (see Drape#stayOffFeet).
+      for (const side of ["L", "R"]) {
+        const ankle = prepared.frame.joints?.[`ankle_${side}`], sole = shoes[side].hulls.find(h => h)
+        if (!ankle || !sole) continue
+        let toe = sole[0], far = -1
+        for (const q of sole) { const d = Math.hypot(q[0] - ankle[0], q[1] - ankle[2]); if (d > far) { far = d; toe = q } }
+        if (far <= 0) continue
+        shoes[side].ankle = ankle
+        shoes[side].forward = [(toe[0] - ankle[0]) / far, (toe[1] - ankle[2]) / far]
+        shoes[side].reach = 0.035 * ((prepared.frame.top - prepared.frame.floor) / 1.76)
+      }
+      prepared.frame.feet = shoes
+    }
     return prepared
   }
 
@@ -1233,9 +1248,16 @@ export class FittingStage {
     const body = bodySnapshot(this.meshes.body)
     const over = this.meshes.trousers.visible ? [bodySnapshot(this.meshes.trousers)] : []
     // Shoes and socks are worn under everything: pants lie on them.
-    for (const mesh of this.feet.meshes) over.push(meshSnapshot(mesh))
+    const taken = new Map(), shoeMeshes = new Set([this.feet.shoes?.L, this.feet.shoes?.R].filter(Boolean))
+    for (const mesh of this.feet.meshes) {
+      const snap = meshSnapshot(mesh)
+      taken.set(mesh, snap)
+      if (shoeMeshes.has(mesh)) { const index = outerShell(snap.positions, snap.index); over.push({ positions: snap.positions, normals: vertexNormals(snap.positions, index), index }) } else over.push(snap)
+    }
+    // And each shoe's points as they are in this pose, for its outline (see shoeOutlines).
+    const shoes = this.feet.shoes?.L && this.feet.shoes?.R ? { L: taken.get(this.feet.shoes.L)?.positions, R: taken.get(this.feet.shoes.R)?.positions } : null
     if (slot) for (const d of this.under(slot)) if (d.top.done) over.push(clothSnapshot(d.top.drape.x, d.top, body))
-    return { body, over, egg: coverHead(this.eggShape(), body) }
+    return { body, over, shoes, egg: coverHead(this.eggShape(), body) }
   }
 
   // The egg head as an ellipsoid in world space.
