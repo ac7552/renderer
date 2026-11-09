@@ -53,6 +53,24 @@ test("a light panel beside dark cloth stays cloth", () => {
   assert.equal(found.box.bottom, 260, "the shadow under the hem still isn't")
 })
 
+test("a white sleeve lighter than the backdrop is cloth, however narrow", () => {
+  // A navy body, its sleeves white leather, on a backdrop darkened round the garment (segment.js's
+  // outlineLight): a sleeve 20 pixels across is narrower than a light panel must be to tell it from a shadow,
+  // but no shadow is lighter than the backdrop it falls on.
+  const w = 240, h = 300, data = new Uint8ClampedArray(4 * w * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let c = [198, 198, 198]
+    if (y >= 60 && y <= 260 && x >= 70 && x <= 170) c = [10, 35, 66]
+    if (y >= 60 && y <= 230 && ((x >= 50 && x <= 69) || (x >= 171 && x <= 190))) c = [244, 244, 242]
+    data.set([...c, 255], 4 * (y * w + x))
+  }
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  assert.equal(found.box.left, 50)
+  assert.equal(found.box.right, 190)
+  for (const x of [52, 60, 180, 188]) assert.equal(found.mask[150 * w + x], 1, `x ${x}`)
+})
+
 test("a hanger's hook and shoulders are cut off the top of the photo", () => {
   const { data, w, h } = photo({ hanger: true })
   const found = clothMask(data, w, h)

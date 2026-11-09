@@ -33,6 +33,9 @@ export { HangerDrape } from "lib/garments/hanger"
 // How wide a band of backdrop-like pixels at the edge of a dark garment can be and still be its shadow (a
 // share of the photo's width); wider, it's a light panel of the garment's own.
 const SHADOW_REACH = 0.1
+// How much lighter than the backdrop (the sum of r, g and b) a pixel must be to be cloth whatever the garment's
+// colour: no shadow is lighter than what it falls on.
+const LIGHTER = 30
 // Whether pixels [from, to) of a row (at offset row) are a panel of the garment near the backdrop's colour
 // rather than its shadow: a shadow fades, so its quarter by the backdrop (outerLeft: the stretch's left end)
 // is lighter than its quarter by the garment by more than a tenth of the backdrop's brightness; a panel is
@@ -63,7 +66,10 @@ export function clothMask(data, w, h) {
   const apart = dist(cloth, bg)
   // The shadow is told from the cloth by how far from the backdrop's colour a pixel is; a garment near the
   // backdrop's own colour (white on light grey) can't be, and keeps its outline whole.
-  const isCloth = apart < 24 ? () => true : i => dist([data[4 * i], data[4 * i + 1], data[4 * i + 2]], bg) > apart * 0.45
+  // (A shadow is darker than the backdrop: what's lighter than it is cloth, however near, a varsity's white
+  // sleeves on a grey sweep.)
+  const bgSum = bg[0] + bg[1] + bg[2]
+  const isCloth = apart < 24 ? () => true : i => dist([data[4 * i], data[4 * i + 1], data[4 * i + 2]], bg) > apart * 0.45 || data[4 * i] + data[4 * i + 1] + data[4 * i + 2] > bgSum + LIGHTER
   const out = new Uint8Array(w * h)
   const gap = Math.max(2, Math.round(w * 0.015))
   const widths = new Int32Array(h)
@@ -1190,6 +1196,21 @@ function calmFolds(image, mask, box, sw, sh) {
   const r = Math.max(2, Math.round(0.25 * (box.right - box.left) / 4))
   const weight = boxBlur(on, sw, sh, r)
   const broad = sums.map(c => boxBlur(c, sw, sh, r))
+  // The broad colour again without what's far from it (a strip of red embroidery down a cream shirt, a
+  // graphic): blurred in, it tinted the cloth round it pink, and the meter then drew the rest mint to make up.
+  // Where enough of the cloth near its colour is left, its blur is the broad colour.
+  const nearSums = [0, 1, 2].map(() => new Float32Array(sw * sh)), nearOn = new Float32Array(sw * sh)
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+    if (!mask[y * w + x]) continue
+    const k = (y >> 2) * sw + (x >> 2), i = 4 * (y * w + x), wt = weight[k]
+    if (!(wt > 0) || Math.hypot(d[i] - broad[0][k] / wt, d[i + 1] - broad[1][k] / wt, d[i + 2] - broad[2][k] / wt) > FAR) continue
+    nearSums[0][k] += d[i]; nearSums[1][k] += d[i + 1]; nearSums[2][k] += d[i + 2]; nearOn[k]++
+  }
+  const nearWeight = boxBlur(nearOn, sw, sh, r), nearBroad = nearSums.map(c => boxBlur(c, sw, sh, r))
+  for (let k = 0; k < sw * sh; k++) {
+    if (!(nearWeight[k] > 0.25 * weight[k])) continue
+    for (let c = 0; c < 3; c++) broad[c][k] = (nearBroad[c][k] / nearWeight[k]) * weight[k]
+  }
   // How much of the cloth is far from its broad colour, in each of a 3 by 3 grid over it: a print all over
   // (most of the cells) isn't calmed; a big graphic (a few cells, a tee's chest) is, round it.
   const cells = Array.from({ length: 9 }, () => [0, 0])
