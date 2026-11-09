@@ -833,11 +833,15 @@ export function clothMaterial({ color = "#2a3552", cloth = "jersey", details = {
         // Creases: where the cloth is gathered (squeezed) or tucked into a fold, its tiny folds shade each
         // other, so it's a little darker and rougher there (the photo's colour too, laid on above).
         float crease = clamp( vStrain + CREASE_FOLD * ( 1.0 - vShade ), 0.0, 1.0 ) * ( 1.0 - metal );
-        diffuseColor.rgb *= 1.0 - CREASE_DARK * crease;
+        // Light cloth (white, cream, pale grey): its creases, its folds' shade and its inside darkened as a dark
+        // cloth's are read as grey smudges and dirt on it (a white shirt's sides and back, a cream hood's
+        // inside), where a fold in pale cloth shows as a soft change of light. So less of all three on it.
+        float lightCloth = smoothstep( 0.45, 0.8, dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ) );
+        diffuseColor.rgb *= 1.0 - CREASE_DARK * crease * ( 1.0 - 0.6 * lightCloth );
         // (A hood's inside is its outside's cloth, turned: worn down and folded back, it's much of what shows of
         // the hood round the neck, and at the cloth's inside shade the hood read as dark, or lost. So with a
         // collar's or neckband's inside, seen at the back of the neck: a light polo's read as a black crew rib.)
-        if ( !gl_FrontFacing && uBake < 0.5 ) diffuseColor.rgb *= vPiece < -0.5 ? 0.85 : 0.55;   // the inside (not when baking: a panel's uv winding says nothing about its outside)
+        if ( !gl_FrontFacing && uBake < 0.5 ) diffuseColor.rgb *= vPiece < -0.5 ? 0.85 : mix( 0.55, 0.8, lightCloth );   // the inside (not when baking: a panel's uv winding says nothing about its outside)
         ${fitMap ? "" : PROJECTION.fragmentApply}`)
       // The inside of the cloth (a hood's, a turned-back cuff's) is in its own shade: its sheen dimmed with it,
       // or a black hood's inside catches a grey shine the outside doesn't.
@@ -885,8 +889,9 @@ export function clothMaterial({ color = "#2a3552", cloth = "jersey", details = {
         // A yarn's top is a little smoother than the fibres and gaps round it.
         roughnessFactor = clamp( roughnessFactor * mix( 1.0, 0.78 + 0.44 * gDetail.g, uDetailOn ), 0.04, 1.0 );`)
       .replace("#include <aomap_fragment>", `#include <aomap_fragment>
-        reflectedLight.indirectDiffuse *= vShade;
-        reflectedLight.indirectSpecular *= vShade;
+        float foldShade = mix( vShade, 1.0, 0.5 * lightCloth );
+        reflectedLight.indirectDiffuse *= foldShade;
+        reflectedLight.indirectSpecular *= foldShade;
         if ( !gl_FrontFacing ) { reflectedLight.indirectSpecular *= 0.3; reflectedLight.directSpecular *= 0.3; }`)
       // The check's picture is the cloth's own colours, unlit: a fold's shadow isn't read as a print, and the
       // colour is the cloth's, not the light's (stage.js's lookShot).
