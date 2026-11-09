@@ -332,6 +332,10 @@ export default class extends Controller {
         const backPhoto = garment.back_photo && read ? await cleanPhoto(garment.back_photo, part) : null
         if (backPhoto) garment.backCleaned = backPhoto !== garment.back_photo
         if (kind === "top") garment.lookPhotos = { front: frontPhoto, back: backPhoto }
+        // The photos as cleaned (a light garment given its outline, a hand painted out) for the re-draping,
+        // whatever the kind: a jacket's or a coat's went on as the shop gave them, and a varsity's white
+        // sleeves, lost in the light backdrop, were laid with the body's navy.
+        if (!bottoms) garment.cleanPhotos = { front: frontPhoto, back: backPhoto }
         const readBack = src => (bottoms ? readBottomPhoto(src) : readPhoto(src)).catch(() => null)
         let back = backPhoto ? await readBack(backPhoto) : null, backSrc = back ? backPhoto : null
         if (!back && backPhoto && backPhoto !== garment.back_photo) { back = await readBack(garment.back_photo); backSrc = back ? garment.back_photo : null }
@@ -1959,12 +1963,12 @@ export default class extends Controller {
       // with the back's own photo on the back, is truer.
       // Pants with graphics laid as one piece (legPrints) take their photos with the graphics painted out.
       // (A top's placed print painted out of the photo the re-draping lays on, and the print kept on over it.)
-      photo: kind === "shoes" || garment.print?.mottled ? null : garment.legPhotos?.front ?? garment.printCleaned ?? garment.lookPhotos?.front ?? garment.photo ?? null,
+      photo: kind === "shoes" || garment.print?.mottled ? null : garment.legPhotos?.front ?? garment.printCleaned ?? garment.lookPhotos?.front ?? garment.cleanPhotos?.front ?? garment.photo ?? null,
       printPlaced: Boolean(garment.printCleaned),
       photoPart: garment.photoPart ?? null,
       // The front photo is of it worn (photo_roles.js): only its cloth is laid on, the person masked out.
       photoWorn: garment.photoRole === "on_model",
-      back_photo: kind === "shoes" || garment.print?.mottled ? null : garment.legPhotos?.back ?? garment.lookPhotos?.back ?? garment.back_photo ?? null,
+      back_photo: kind === "shoes" || garment.print?.mottled ? null : garment.legPhotos?.back ?? garment.lookPhotos?.back ?? garment.cleanPhotos?.back ?? garment.back_photo ?? null,
       legPrints: garment.legPrints ?? null,
       fabric: garment.fabric,
       style: garment.style,
