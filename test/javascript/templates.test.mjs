@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import "./support/lib.mjs"
 
-const { readTemplate, templateGeometry, templateFor } = await import("lib/garments/templates")
+const { readTemplate, openTemplate, templateGeometry, templateFor } = await import("lib/garments/templates")
 const { lastFrame } = await import("lib/garments/last_shape")
 
 const bin = name => { const b = readFileSync(new URL(`../../public/shoes/${name}.bin`, import.meta.url)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) }
@@ -24,9 +24,9 @@ function side() {
   return { left: 0.1, right: 0.9, aspect: 1, top, bottom, sole }
 }
 
-test("a template's file is read: its points inside its box, its triangles over them, its parts grouped", () => {
-  for (const name of ["runner", "chunky"]) assert.equal(readTemplate(bin(name)).name, name)
-  const t = readTemplate(bin("workboot"))
+test("a template's file is read: its points inside its box, its triangles over them, its parts grouped", async () => {
+  for (const name of ["runner", "chunky"]) assert.equal((await openTemplate(bin(name))).name, name)
+  const t = (await openTemplate(bin("workboot")))
   assert.equal(t.name, "workboot")
   assert.equal(t.positions.length, 3 * t.count)
   const [lo, hi] = t.box
@@ -36,10 +36,10 @@ test("a template's file is read: its points inside its box, its triangles over t
   assert.equal(t.profile.top.length, 64)
 })
 
-test("a template is stretched to the side photo: its upper's top along the shoe on the photo's topline, its sole on the floor", () => {
+test("a template is stretched to the side photo: its upper's top along the shoe on the photo's topline, its sole on the floor", async () => {
   const { body, frame } = leg()
   const style = { family: "combat", square: 2.2, thick: 0.007, toe: 0.014 }
-  const t = readTemplate(bin("workboot"))
+  const t = (await openTemplate(bin("workboot")))
   const g = templateGeometry(body, frame, "L", side(), [], style, t)
   const f = lastFrame(body, frame, "L", side(), [], style)
   const p = g.attributes.position.array, n = p.length / 3

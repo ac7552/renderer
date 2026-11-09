@@ -298,6 +298,7 @@ export class FittingStage {
     if (this.bodyType) this.setBodyType(this.bodyType)
     this.scene.add(this.model)
     this.applyPose()
+    this.groundFigure()
     this.frame()
     this.redraw()
     if (this.pendingBody) this.setBody(this.pendingBody)
@@ -313,9 +314,29 @@ export class FittingStage {
     this.fitted.influences.women = this.bodyType === "women" && this.hasWomen ? 1 : 0
     this.model.scale.setScalar(this.fitted.scale)
     for (const mesh of Object.values(this.meshes)) applyInfluences(mesh, this.fitted.influences)
+    this.groundFigure()
     this.redraw()
     this.frameOutfit()
     return this.fitted.limited
+  }
+
+  // The floor (its light, its shadows) where the figure's feet are. The body's shape (its morphs: height, legs)
+  // moves its soles off the model's origin, by 3 or 4 cm on the tall bodies; the floor at the origin left the
+  // figure, shoes and all, standing in the air over its own shadow. Read standing, as the shoes are built
+  // (dressFeet): the lowest point of the body, shaped as it is now.
+  groundFigure() {
+    if (!this.model || !this.meshes?.body || !this.floor) return
+    const pose = this.pose
+    if (pose !== "standing") { this.pose = "standing"; this.applyPose() }
+    const p = bodySnapshot(this.meshes.body).positions
+    if (pose !== "standing") { this.pose = pose; this.applyPose() }
+    let low = Infinity
+    for (let i = 1; i < p.length; i += 3) if (p[i] < low) low = p[i]
+    if (!isFinite(low)) return
+    this.ground = low
+    this.pool.position.y = low - 0.001
+    this.floor.position.y = low
+    this.contact.position.y = low + 0.0005
   }
 
   // "men" or "women": which body the mannequin has. Its measurements then start from that body's.
@@ -336,6 +357,7 @@ export class FittingStage {
     this.waiting = {}
     this.applyPose()
     if (this.measures) this.setBody(this.measures)
+    else this.groundFigure()
   }
 
   // items: [{ kind: "top" | "jacket" | "coat" | "trousers", size (cm), checks (the API's), color, fabric, style }]
@@ -2635,7 +2657,6 @@ function collarLeaf(top, scale) {
   return geometry
 }
 
-// A mesh as it stands now, in world space, as something to drape over.
 // Socks when none were picked: with closed shoes under long pants, a plain dark crew sock, as most people wear.
 // Bare, the mannequin's white ankle shows between the hem and the shoe (the hem tents over the instep) and
 // reads as a white sock. Not with sandals, mules or heels, nor under shorts or a skirt.
@@ -2647,6 +2668,7 @@ export function defaultSocks(worn) {
   return { style: "crew", color: DEFAULT_SOCK, fabric: "knit", auto: true }
 }
 
+// A mesh as it stands now, in world space, as something to drape over.
 function meshSnapshot(mesh) {
   mesh.updateWorldMatrix(true, false)
   const a = mesh.geometry.attributes.position, v = new THREE.Vector3()

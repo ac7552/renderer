@@ -60,12 +60,12 @@ class GarmentImport
   ].freeze
   TROUSERS = /trouser|pants?\b|jeans?\b|chinos?\b|slacks|leggings?\b|\btights\b|joggers?\b|sweatpants?|track ?pants?|\bshorts?\b(?![- ]?sleeve)|skirts?\b|skort/i
   # Worn over tailoring and cut long; fitted with more room and no "right" length.
-  COATS = /overcoat|topcoat|top coat|car coat|trench|peacoat|pea coat|parka|duffle|\bcoat\b/i
+  COATS = /overcoat|topcoat|top coat|car coat|trench|peacoat|pea coat|parka|duffle|\bduster\b|\bcoat\b/i
   NOT_COATS = /sport ?coat|(?<!body)(?<!cat)(?<!track)(?<!jump)(?<!swim)(?<!play)(?<!boiler)(?<!flight)(?<!sweat)suit|blazer|tuxedo/i
   # A "hoodie" that's insulated is outerwear (Canada Goose calls jackets hoodies), and so is one that zips up
   # with a hood, unless it's knitwear (a sweater hoodie with a zip is a knit top, worn as a hoodie is).
   # Down as a filling, not as a word ("dress it up or down", "button-down", "down the front").
-  INSULATED = /\bdown[- ](?:filled|fill|insulated|jacket|parka|coat|vest|puffer)\b|(?:goose|duck) down\b|\bdown (?:and|&) feathers?\b|downproof|puffer|quilted|insulated|padded|parka|windbreaker|shell/i
+  INSULATED = /\bdown[- ](?:filled|fill|insulated|jacket|parka|coat|vest|puffer)\b|(?:goose|duck) down\b|\bdown (?:and|&) feathers?\b|downproof|puffer|quilted|insulated|padded(?![- ](?:elbows?|shoulders?|knees?|patch(?:es)?))|parka|windbreaker|shell/i
   HOODED_OUTERWEAR = Regexp.union(INSULATED, /zip(?:per)? closure|two-way zip/i)
   # A sweatshirt's make: a zip-up hoodie with these is a sweatshirt that zips (worn as a top, drawn as a
   # hoodie with its zip), not a shell jacket with a hood, whatever its zip is called.
@@ -87,13 +87,16 @@ class GarmentImport
   # shirt (button-front denim, trucker and work jackets), bomber, or zip (most other outerwear). First match wins.
   ZIP_FRONT = /two-way zip|zip(?:per)? closure|full[- ]zip|zip[- ]up|front zip/i
   STYLES = [
-    [ "cardigan", /cardigan/i ],
+    # (A shrug or a bolero is worn open over the shoulders, as a cardigan is.)
+    [ "cardigan", /cardigan|\bshrug\b|\bbolero\b/i ],
     [ "tailored", /blazer|(?<!body)(?<!cat)(?<!track)(?<!jump)(?<!swim)(?<!play)(?<!boiler)(?<!flight)(?<!sweat)suit|sport ?coat|tuxedo|dinner jacket|smoking jacket|lapel/i ],
     [ "bomber", /bomber|varsity|letterman|flight jacket|ma-1|baseball jacket|harrington|aviator|blouson/i ],
     [ "zip", ZIP_FRONT ],
     [ "shirt", /denim(?: \w+)? jacket|jean jacket|trucker|chore|overshirt|shirt[- ]jacket|shacket|work jacket|field jacket|barn jacket|hunting jacket|ranch jacket|coach(?:es)? jacket|utility|safari|chambray|button[- ](front|closure|up)|point collar/i ],
     [ "zip", /zip|moto\b|biker|leather jacket|shearling|puffer|down jacket|windbreaker|anorak|track jacket|blouson|fleece/i ]
   ].freeze
+  # A front that buttons or snaps shut (not a collar's or a pocket's snap).
+  FRONT_BUTTONS = /(?:button|snap)s?(?: closure)? (?:on|down|at) the front|(?:button|snap)[- ](?:front|up|down|placket)|front (?:button|snap)s?|\bbutton(?:s|ed)? closure\b(?! (?:on|at) the (?:collar|cuffs?|pockets?|sleeves?))/i
   # What only a shirt jacket is called (a "utility" jacket can zip).
   SHIRT_NAMED = /denim(?: \w+)? jacket|jean jacket|trucker|overshirt|shirt[- ]jacket|shacket|chambray|button/i
   # Shops' outerwear sections, where a jacket that says nothing else is more likely casual than tailored.
@@ -259,7 +262,7 @@ class GarmentImport
     !data.empty? && data.count("^A-Za-z0-9+/=").zero?
   end
   # Bump when what an import returns changes, so cached imports from before aren't served.
-  FORMAT = 36
+  FORMAT = 37
 
   # The shop's main product photo, fetched here and sent to the page inline, so the person's browser never
   # contacts the shop's image server and the page can read the photo's colours. Optional: a garment
@@ -1223,7 +1226,7 @@ class GarmentImport
   # A jacket or coat with a hood (a parka, a hooded puffer): drawn with one, worn down as its photo shows it.
   # A hood stowed in the collar, or one the listing says it hasn't, isn't drawn.
   HOODED = /\bhood(?:ed|s|ie|y)?\b|\bparka\b|\banorak\b/i
-  NO_HOOD = /hoodless|no hood|without (?:a )?hood|(?:stowable|packable|concealed|hidden|tuck(?:ed|able)?[- ]away|roll[- ]away) hood|hood (?:stows|packs|tucks|rolls) (?:away|in|into)/i
+  NO_HOOD = /hoodless|no hood|without (?:a )?hood|(?:stowable|stowaway|stow[- ]away|packable|concealed|hidden|tuck(?:ed|able)?[- ]away|roll[- ]away) hood|hoo[dk][- ]and[- ]eye|hood (?:stows|packs|tucks|rolls) (?:away|in|into)/i
   def hooded?(product)
     words = product.values_at(:name, :description).join(" ")
     words.match?(HOODED) && !words.match?(NO_HOOD)
@@ -1394,6 +1397,7 @@ class GarmentImport
   # shoulders (a man's usual 46 cm when the chart doesn't give them).
   def from_shoulder(size) = (size["sleeve"] - (size["shoulders"] || 46) / 2.0).round(2)
 
+  SHIRT_COLLAR = /(?:classic|point|spread|camp|cuban|button[- ]down|pointed|notched) collar/i
   def top_style_of(product)
     style = product.values_at(:name, :category).each do |words|
       found = TOP_STYLES.find { |_, pattern| words.to_s.match?(pattern) }&.first
@@ -1421,6 +1425,11 @@ class GarmentImport
     # A "T-shirt" whose description says it has long sleeves is a long-sleeve one, and so is a top named for
     # nothing (a "Jersey") whose photo shows its sleeves reaching down past its hem.
     return style unless style == "tee"
+    # A "T-shirt" with a shirt's collar buttoned down the front (CDG's crinkle T-shirt, filed under button-ups)
+    # is a short-sleeve shirt.
+    if product[:description].to_s.match?(SHIRT_COLLAR) && product[:description].to_s.match?(FRONT_BUTTONS)
+      return product[:description].to_s.match?(/long[- ]?sleeve/i) ? "shirt" : "shortshirt"
+    end
     return "longsleeve" if product[:description].to_s.match?(/long[- ]?sleeve/i)
     long_sleeves_in_photo?(product[:shape]) && !product[:name].to_s.match?(/short[- ]?sleeve|\bs\/s\b|\bt[- ]?shirt|\btee\b/i) ? "longsleeve" : style
   end
@@ -1444,7 +1453,8 @@ class GarmentImport
     # A utility, field or work jacket the description says zips up the front is a zip-up (a trucker or an
     # overshirt with a zip pocket, or one that buttons or snaps, stays a shirt jacket).
     description = product[:description].to_s
-    return "zip" if found == "shirt" && !named.match?(SHIRT_NAMED) && description.match?(ZIP_FRONT) && !description.match?(/button|snap/i)
+    # (Snaps on the collar or the pockets don't close the front: Stone Island's coach jacket zips.)
+    return "zip" if found == "shirt" && !named.match?(SHIRT_NAMED) && description.match?(ZIP_FRONT) && !description.match?(FRONT_BUTTONS)
     return found if found
     words = product.values_at(:name, :category, :description).join(" ")
     found = STYLES.find { |_, pattern| words.match?(pattern) }&.first

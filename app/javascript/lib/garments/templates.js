@@ -80,26 +80,58 @@ export function loadTemplate(name) {
   if (got) return got instanceof Promise ? got : Promise.resolve(got.template)
   const promise = fetch(`/shoes/${name}.bin${index?.[name]?.v ? `?v=${index[name].v}` : ""}`)
     .then(r => (r.ok ? r.arrayBuffer() : null))
-    .then(buffer => (buffer ? readTemplate(buffer) : null))
+    .then(buffer => (buffer ? openTemplate(buffer) : null))
     .catch(() => null)
     .then(template => { loaded.set(name, { template }); return template })
   loaded.set(name, promise)
   return promise
 }
 
-// A template's file read: { name, positions (Float32, the template's frame), index, parts per triangle, groups,
-// profile, laced }.
+// A template's file as fetched: gzipped as packed (script/shoes/pack_templates.py), opened with the browser's own
+// gzip, then read. Resolves to readTemplate's.
+export async function openTemplate(buffer) {
+  const bytes = new Uint8Array(buffer)
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))
+    buffer = await new Response(stream).arrayBuffer()
+  }
+  return readTemplate(buffer)
+}
+
+// A template's file read (once opened): { name, positions (Float32, the template's frame), index, groups, profile,
+// laced }. Packed (head.packed 2): each axis's quantised coordinates as changes from the point before, the
+// triangles' indices as zigzag varints of the change from the index before.
 export function readTemplate(buffer) {
   const view = new DataView(buffer)
   const headLength = view.getUint32(0, true)
   const head = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, headLength)))
   let at = 4 + headLength
-  const n = head.count, [lo, hi] = head.box
+  const n = head.count, [lo, hi] = head.box, triangles = head.triangles
+  const positions = new Float32Array(3 * n)
+  if (head.packed === 2) {
+    const d = new Uint16Array(buffer.slice(at, at + 6 * n))
+    at += 6 * n + ((6 * n) % 4 ? 2 : 0)
+    for (let a = 0; a < 3; a++) {
+      let q = 0
+      for (let i = 0; i < n; i++) { q = (q + d[a * n + i]) & 0xffff; positions[3 * i + a] = lo[a] + (q / 65535) * (hi[a] - lo[a]) }
+    }
+    const bytes = new Uint8Array(buffer, at, head.indexBytes)
+    const index = n > 65535 ? new Uint32Array(3 * triangles) : new Uint16Array(3 * triangles)
+    let k = 0, last = 0, acc = 0, shift = 0
+    for (let i = 0; i < bytes.length; i++) {
+      const b = bytes[i]
+      acc += (b & 127) * 2 ** shift
+      if (b & 128) { shift += 7; continue }
+      last += acc % 2 ? -(acc + 1) / 2 : acc / 2
+      index[k++] = last
+      acc = shift = 0
+    }
+    return { ...head, positions, index }
+  }
   const q = new Uint16Array(buffer.slice(at, at + 6 * n))
   at += 6 * n + ((6 * n) % 4 ? 2 : 0)
-  const positions = new Float32Array(3 * n)
   for (let i = 0; i < 3 * n; i++) positions[i] = lo[i % 3] + (q[i] / 65535) * (hi[i % 3] - lo[i % 3])
-  const big = n > 65535, triangles = head.triangles
+  const big = n > 65535
   const index = big ? new Uint32Array(buffer.slice(at, at + 12 * triangles)) : new Uint16Array(buffer.slice(at, at + 6 * triangles))
   return { ...head, positions, index }
 }

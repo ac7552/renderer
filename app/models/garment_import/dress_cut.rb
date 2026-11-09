@@ -46,6 +46,8 @@ class GarmentImport
     ].freeze
     # An "asymmetrical off-shoulder neckline" is off one shoulder: the other is covered.
     OFF_ONE_SHOULDER = /asymmetric(?:al)?\s+off[- ](?:the[- ])?shoulders?/i
+    OFF_SHOULDER = /off[- ](?:the[- ])?shoulders?/i
+    SLEEVED = /sleeve cuffs?|long[- ]sleeves?|full[- ]length sleeves?|\bsleeves\b/i
     NECKLINES = [
       [ "plunge", /plung|deep[- ]v|v[- ]neck|\bv\b neck|wrap front/i ],
       [ "high", /high[- ]neck|mock[- ]neck|turtle ?neck|funnel neck|halter neck/i ],
@@ -148,12 +150,17 @@ class GarmentImport
       named_sleeves = first.(SLEEVES, name) || first.(SLEEVES, words)
       # "Off Shoulder" in its name and "asymmetrical off-shoulder neckline" in its description: off one shoulder.
       named_sleeves = "one_shoulder" if named_sleeves == "strapless" && words.match?(OFF_ONE_SHOULDER)
+      # An off-shoulder neckline over sleeves ("foldover off-shoulder neckline", "ribbed sleeve cuffs"): long
+      # sleeves under a wide, straight neckline, not a strapless dress (drawn strapless, a knit mini with sleeves
+      # came out as a bandeau top, its length measured from a top edge it hasn't).
+      off_shoulder_sleeved = named_sleeves == "strapless" && words.match?(OFF_SHOULDER) && words.match?(SLEEVED)
+      named_sleeves = "long" if off_shoulder_sleeved
       sleeves = named_sleeves || "none"
       shares = fibre_shares(product[:fabric].presence || product[:description])
       stretch = words.match?(STRETCH) || STRETCHY.sum { shares[it].to_f } >= 3
       cut = {
         sleeves:,
-        neckline: first.(NECKLINES, words) || { "strapless" => "straight", "thin_straps" => "scoop", "straps" => "scoop",
+        neckline: first.(NECKLINES, words) || (off_shoulder_sleeved ? "straight" : nil) || { "strapless" => "straight", "thin_straps" => "scoop", "straps" => "scoop",
                                                 "one_shoulder" => "straight" }.fetch(sleeves, "round"),
         # Its own name first, then its description: a "Midi Skirt" Kith files under Maxi Skirts is a midi, and
         # so is a dress filed there whose description says "Mini length".

@@ -793,6 +793,9 @@ def export(ob, name, spec, f):
         fh.write(struct.pack("<I", len(head)))
         fh.write(head)
         fh.write(body)
+    # (Packed for the wire, about a quarter of the size: pack_templates.py.)
+    from pack_templates import pack_file
+    pack_file(OUT / f"{name}.bin")
     ev.to_mesh_clear()
     return n, len(tris)
 
@@ -820,9 +823,8 @@ def write_index():
     choose the template whose side matches the photo's before fetching it."""
     index = {}
     for path in sorted(OUT.glob("*.bin")):
-        with open(path, "rb") as fh:
-            head_length = struct.unpack("<I", fh.read(4))[0]
-            head = json.loads(fh.read(head_length))
+        from pack_templates import read
+        head = read(path.read_bytes())[0]
         index[head["name"]] = {k: head[k] for k in ("box", "profile", "throat", "laced")}
         # (Its content's hash, on its link: a rebuilt template isn't read from a browser's old copy.)
         import hashlib

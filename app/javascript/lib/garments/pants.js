@@ -57,7 +57,7 @@ export function draftBottoms(styleName, size, body, cut = null) {
   if (gathered) m.waistCut = Math.max(m.waist, m.seat * 0.82)
   const panels = {}, seams = []
   for (const part of ["front", "back"]) {
-    const plus = legPiece(m, part, { slant: ["trousers", "jeans"].includes(styleName) ? HEM_SLANT : 0 })
+    const plus = legPiece(m, part, { slant: ["trousers", "jeans"].includes(styleName) ? hemSlant(m, body) : 0 })
     // The left front and the right back are drawn as made; the other two are their mirror images.
     const [made, mirror] = part === "front" ? ["L", "R"] : ["R", "L"]
     panels[`${part}_${made}`] = { edges: plus, place: { at: "leg", side: made, part }, fabric: "main" }
@@ -233,6 +233,13 @@ function draftSkirt(size, body, cut) {
 // How much higher (cm) a full-length leg's hem is cut at the middle of the back than at its seams: a tailor
 // slants a trouser's hem so the back clears the heel instead of folding up on it.
 const HEM_SLANT = 1.5
+// A leg longer than the wearer's (long wide jeans, as worn) has its back cut higher still, up to 4 cm in all: its
+// length breaks once over the shoe's front, and the back hangs clear of the floor behind the heel rather than
+// piling there in a ring round the shoe. Half a centimetre more for each centimetre of extra length.
+export function hemSlant(m, body) {
+  const extra = Number.isFinite(body?.inseam) && Number.isFinite(m.inseam) ? m.inseam - body.inseam : 0
+  return HEM_SLANT + Math.min(2.5, Math.max(0, extra) * 0.5)
+}
 
 function legPiece(m, part, { slant = 0 } = {}) {
   const share = part === "front" ? FRONT : 1 - FRONT
