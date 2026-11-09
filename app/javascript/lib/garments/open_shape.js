@@ -16,6 +16,9 @@ import { hullGeometry } from "lib/garments/hull"
 import { lastFrame } from "lib/garments/last_shape"
 
 // The families built this way (lasts.js's), when the side photo shows openings (shoeSide's open mask).
+// (Not a pump, tried 8 November: built this way a stiletto's stem came out as wide as the shoe, a wall behind
+// the heel seen from the front, and closed pumps and heeled boots passed the toe test (a heel's own stem is its
+// tallest part, so its toe looks low beside it) and lost their toes' cover. Heels stay carved.)
 export const OPEN_SHAPED = new Set(["sandal", "slide"])
 // Points round the footbed's outline, and its profile's layers.
 const AROUND = 96
@@ -95,13 +98,15 @@ export function openGeometry(body, frame, side, outline, views, style) {
   }
   // --- The straps: the skin's slices, offset out along the surface's normal, kept where the photo shows shoe.
   const top = floor + Math.min(0.32 * s, Math.max(...Array.from({ length: 21 }, (_, k) => yTop(k / 20))) - floor + 0.02 * s)
-  const slices = legSlices(body, frame, side, top)
+  // (A finer grid than a sock's: 2.5 mm up and 192 round, about 4 mm apart along a foot's side; at the sock's
+  // 64 round the band's cut edges stepped a centimetre at a time down the foot's long sides.)
+  const slices = legSlices(body, frame, side, top, { step: 0.0025, around: 192 })
   const rows = slices.rows, around = slices.reach[0].length
   const skin = new Float32Array(rows * around * 3)
   for (let k = 0; k < rows; k++) for (let j = 0; j < around; j++) {
     const a = (j / around) * 2 * Math.PI, c = slices.centres[k], r = slices.reach[k][j]
     const o = 3 * (k * around + j)
-    skin[o] = c[0] + r * Math.sin(a); skin[o + 1] = floor + k * 0.005; skin[o + 2] = c[1] + r * Math.cos(a)
+    skin[o] = c[0] + r * Math.sin(a); skin[o + 1] = floor + k * slices.step; skin[o + 2] = c[1] + r * Math.cos(a)
   }
   const normal = gridNormals(skin, rows, around)
   // Each point's share of shoe: the photo's, from just inside the footbed's top (the band meets the bed with no

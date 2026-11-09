@@ -506,8 +506,11 @@ export class Drape {
         p[3 * i] = this.x[3 * i] + (px - this.x[3 * i]) * 0.3
         p[3 * i + 2] = this.x[3 * i + 2] + (pz - this.x[3 * i + 2]) * 0.3
       } else {
-        p[3 * i] = px + bx * (best + thick)
-        p[3 * i + 2] = pz + bz * (best + thick)
+        // Out of a shoe a little a step (the points deep in it come out over a few steps, together): pushed out
+        // all at once, the lowest of a wide leg's hem jumped clear to the shoe's sides and the leg splayed out.
+        const out = foot.ankle ? Math.min(best + thick, SHOE_PUSH) : best + thick
+        p[3 * i] = px + bx * out
+        p[3 * i + 2] = pz + bz * out
       }
     }
   }
@@ -814,6 +817,9 @@ Drape.prototype.phases = function* ({ sewFrames = 150, settleFrames = 150, calmF
 }
 
 // Whether [x, z] is inside a convex outline whose points run anticlockwise.
+// How far (m) a step a point inside a shoe's outline is pushed out to its side.
+const SHOE_PUSH = 0.006
+
 function insideHull(hull, x, z) {
   for (let k = 0; k < hull.length; k++) {
     const [ax, az] = hull[k], [cx, cz] = hull[(k + 1) % hull.length]

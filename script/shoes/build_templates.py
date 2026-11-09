@@ -75,6 +75,21 @@ FAMILIES = {
         top=[(0.0, 0.24), (0.15, 0.22), (0.35, 0.2), (0.48, 0.21), (0.55, 0.2), (0.7, 0.17), (0.85, 0.15), (0.95, 0.12), (1.0, 0.07)],
         throat=0.48, square=2.6, wall=0.4, collar=0.01, laced=False, tongue=False, metal=False,
         seams=["apron"], strap=True),
+    # A runner: the court's upper on a thick, rockered midsole (more toe spring), a narrower toe, a padded collar
+    # dipping below a raised heel tab.
+    "runner": dict(
+        plan=dict(heel=0.13, waist=0.122, ball=0.172, toe=2.0, ball_at=0.69), welt=0.006,
+        sole=dict(heel=0.12, fore=0.075, arch=0.0, breast=None, spring=0.05, lugs=False, welt=False, groove=False),
+        top=[(0.0, 0.33), (0.06, 0.28), (0.15, 0.26), (0.3, 0.29), (0.37, 0.3), (0.43, 0.28), (0.55, 0.24), (0.7, 0.2), (0.85, 0.165), (0.95, 0.13), (1.0, 0.09)],
+        throat=0.36, square=2.3, wall=0.3, collar=0.035, laced=True, lace_end=0.66, eyelets=7, hooks=0, metal=False,
+        tongue=True, seams=["toecap_court"], bow=True),
+    # A chunky sneaker: a tall, flat platform sole, a wide plan, a heavily padded collar.
+    "chunky": dict(
+        plan=dict(heel=0.14, waist=0.14, ball=0.185, toe=2.3, ball_at=0.7), welt=0.008,
+        sole=dict(heel=0.15, fore=0.12, arch=0.0, breast=None, spring=0.025, lugs=False, welt=False, groove=False),
+        top=[(0.0, 0.37), (0.1, 0.38), (0.25, 0.36), (0.36, 0.37), (0.43, 0.34), (0.55, 0.3), (0.7, 0.26), (0.85, 0.22), (0.95, 0.18), (1.0, 0.13)],
+        throat=0.36, square=2.5, wall=0.32, collar=0.04, laced=True, lace_end=0.66, eyelets=6, hooks=0, metal=False,
+        tongue=True, seams=["toecap_court"], bow=True),
     # A ballet flat: a thin sole, a low topline round a wide opening.
     "flat": dict(
         plan=dict(heel=0.12, waist=0.105, ball=0.16, toe=2.2, ball_at=0.7), welt=0.004,

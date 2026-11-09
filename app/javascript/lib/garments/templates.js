@@ -12,7 +12,7 @@ import * as THREE from "three"
 import { lastFrame } from "lib/garments/last_shape"
 
 // The template each family is fitted from.
-const TEMPLATE_OF = { combat: "workboot", tall: "workboot", court: "court", chunky: "court", runner: "court", hightop: "hightop", chelsea: "chelsea", derby: "derby", loafer: "loafer", flat: "flat" }
+const TEMPLATE_OF = { combat: "workboot", tall: "workboot", court: "court", chunky: "chunky", runner: "runner", hightop: "hightop", chelsea: "chelsea", derby: "derby", loafer: "loafer", flat: "flat" }
 const loaded = new Map()
 // The templates' profiles (public/shoes/index.json, a few kilobytes), fetched as the page loads.
 let index = null

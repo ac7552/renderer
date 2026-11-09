@@ -454,7 +454,7 @@ export class FittingStage {
       top: top && tuck ? { ...top, tuck: { style: worn.trousers.style ?? "trousers", size: worn.trousers.size, cut: worn.trousers.cut ?? null } } : top,
       outer: drapedCoat ? { ...worn.coat, style: "coat" } : drapedJacket ? worn.jacket : null
     }
-    this.dressFeet(worn.shoes ?? null, worn.socks ?? null)
+    this.dressFeet(worn.shoes ?? null, worn.socks ?? defaultSocks(worn))
     this.beltItem = worn.belt ?? null
     for (const slot of this.order) this.dressDraped(slot, items[slot])
     this.announceBusy()
@@ -2636,6 +2636,17 @@ function collarLeaf(top, scale) {
 }
 
 // A mesh as it stands now, in world space, as something to drape over.
+// Socks when none were picked: with closed shoes under long pants, a plain dark crew sock, as most people wear.
+// Bare, the mannequin's white ankle shows between the hem and the shoe (the hem tents over the instep) and
+// reads as a white sock. Not with sandals, mules or heels, nor under shorts or a skirt.
+const DEFAULT_SOCK = "#2b2c30"
+export function defaultSocks(worn) {
+  const shoes = worn.shoes, pants = worn.trousers
+  if (!shoes || !pants || ["shorts", "skirt"].includes(pants.style)) return null
+  if (shoes.style === "sandal" || /\b(?:mules?|slides?|sandals?|flip[- ]?flops?|heels?|pumps?|stilettos?|slingbacks?|thongs?)\b/i.test(`${shoes.name ?? ""} ${shoes.words ?? ""}`.slice(0, 200))) return null
+  return { style: "crew", color: DEFAULT_SOCK, fabric: "knit", auto: true }
+}
+
 function meshSnapshot(mesh) {
   mesh.updateWorldMatrix(true, false)
   const a = mesh.geometry.attributes.position, v = new THREE.Vector3()

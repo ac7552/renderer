@@ -25,6 +25,7 @@ function side() {
 }
 
 test("a template's file is read: its points inside its box, its triangles over them, its parts grouped", () => {
+  for (const name of ["runner", "chunky"]) assert.equal(readTemplate(bin(name)).name, name)
   const t = readTemplate(bin("workboot"))
   assert.equal(t.name, "workboot")
   assert.equal(t.positions.length, 3 * t.count)
@@ -66,4 +67,7 @@ test("a template is stretched to the side photo: its upper's top along the shoe 
 test("a template is chosen by the family, unless the photo's side is much more like another's", () => {
   assert.equal(templateFor({ family: "loafer" }, null).name, "loafer")
   assert.equal(templateFor({ family: "sandal" }, null), null)
+  // A runner and a chunky sneaker have their own (a rockered midsole; a platform), not the court's.
+  assert.equal(templateFor({ family: "runner" }, null).name, "runner")
+  assert.equal(templateFor({ family: "chunky" }, null).name, "chunky")
 })

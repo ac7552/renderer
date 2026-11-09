@@ -22,6 +22,8 @@ function resolveStyle(styleName) {
 
 const STEP = 0.005        // m between slices
 const AROUND = 64         // points round each outline
+// (legSlices' defaults; open_shape.js cuts its straps from a finer grid.)
+const STEP_DEFAULT = STEP, AROUND_DEFAULT = AROUND
 const BODY_HEIGHT = 1.76  // the heights below are for a body this tall (m); they scale with the body
 
 // Each shoe's shape (m): its collar's height at the heel and at the front (the tongue, or a loafer's vamp),
@@ -43,7 +45,7 @@ const SOCK_THICK = 0.0022
 
 // The slices of one leg (side "L", +x, or "R"), from the floor up to `top`: each a convex outline (an array of
 // [x, z]) about its middle, smoothed from slice to slice. body: a snapshot; frame: its bodyFrame.
-export function legSlices(body, frame, side, top) {
+export function legSlices(body, frame, side, top, { step: STEP = STEP_DEFAULT, around: AROUND = AROUND_DEFAULT } = {}) {
   const { positions, index } = body
   const sign = side === "L" ? 1 : -1
   const floor = frame.floor
@@ -85,18 +87,18 @@ export function legSlices(body, frame, side, top) {
     for (let k = 1; k < rows - 1; k++) for (let d = 0; d < 2; d++) centres[k][d] = (c[k - 1][d] + 2 * c[k][d] + c[k + 1][d]) / 4
   }
   // Each outline as how far it reaches from its middle at each angle (0 to the front, +z), smoothed up and down.
-  const reach = hulls.map((h, k) => Float64Array.from({ length: AROUND }, (_, j) => ray(h, centres[k], angleOf(j))))
+  const reach = hulls.map((h, k) => Float64Array.from({ length: AROUND }, (_, j) => ray(h, centres[k], (j / AROUND) * 2 * Math.PI)))
   for (let pass = 0; pass < 2; pass++) {
     const r = reach.map(a => Float64Array.from(a))
     for (let k = 1; k < rows - 1; k++) for (let j = 0; j < AROUND; j++) reach[k][j] = Math.max(r[k][j], (r[k - 1][j] + 2 * r[k][j] + r[k + 1][j]) / 4)
   }
-  return { floor, rows, centres, reach, at: (y) => sliceAt(floor, rows, centres, reach, y) }
+  return { floor, rows, step: STEP, around: AROUND, centres, reach, at: (y) => sliceAt(floor, rows, centres, reach, y, STEP, AROUND) }
 }
 
 function angleOf(j) { return (j / AROUND) * 2 * Math.PI }
 
 // The middle and the reach at each angle at height y (between slices, blended).
-function sliceAt(floor, rows, centres, reach, y) {
+function sliceAt(floor, rows, centres, reach, y, STEP = STEP_DEFAULT, AROUND = AROUND_DEFAULT) {
   const r = Math.min(rows - 1, Math.max(0, (y - floor) / STEP))
   const k = Math.min(rows - 2, Math.floor(r)), t = r - k
   const c = [centres[k][0] * (1 - t) + centres[k + 1][0] * t, centres[k][1] * (1 - t) + centres[k + 1][1] * t]
@@ -934,7 +936,9 @@ export function wrapShoePhoto(geometry, side, { views = [], foot = "L" } = {}) {
     // With no photo from above, what faces up (the laces, the tongue, a vamp's top) takes the side photo just
     // under its topline, rolled in (uv): the laces' and the suede's own colours along the shoe, not one plain
     // colour over the whole instep (whose median leaves white laces out).
-    const upward = !shoes.top && !sole[i] ? Math.max(0, (ny - 0.35) / 0.4) * 0.8 : 0
+    // (Not over the toe box: there the side photo's top edge is the toe's outline seen edge on, and rolled over
+    // the toe's top it smeared a ribbon, a lace or a highlight across it. The toe takes its plain colour.)
+    const upward = !shoes.top && !sole[i] ? Math.max(0, (ny - 0.35) / 0.4) * 0.8 * (1 - Math.min(1, Math.max(0, (u - 0.74) / 0.1))) : 0
     // (Turning to the heel with no photo from behind, the side photo is taken only where the side still faces
     // well out: further round, its heel's edge seen edge on would be stretched down the back in streaks.)
     const behind = !shoes.back && nz < -0.2
