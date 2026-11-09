@@ -751,6 +751,7 @@ const RIM_MOST = 0.008
 const WORN_SKIN = 0.01
 // How far past the cloth's edge its colour is carried (pixels at the photo's working size).
 const BLEED = 16
+const BLEED_INSET = 3   // pixels in from the cloth's outline its colour is spread from (see bleed)
 
 function cutAtWaist(found, w, h, part) {
   const { mask, box } = found
@@ -816,8 +817,26 @@ function clothColourOf(data, mask, w, h) {
 }
 
 // Every pixel within `radius` of the cloth (mask) but outside it takes the colour of the nearest cloth pixel
-// (a breadth-first spread outward, a ring a pass); its alpha, where it holds a relief, flat (128).
-export function bleed(data, mask, w, h, radius) {
+// (a breadth-first spread outward, a ring a pass); its alpha, where it holds a relief, flat (128). The spread
+// starts `inset` pixels in from the outline, and the outline's own thin rim is spread over too: those pixels are
+// the backdrop blended in, or the garment's soft shadow (a white shirt's outline is a grey line), and spread
+// outward they made a grey band round the cloth, which the sides and backs laid on stretched into grey streaks.
+export function bleed(data, mask, w, h, radius, inset = BLEED_INSET) {
+  let source = mask
+  for (let k = 0; k < inset; k++) {
+    const next = Uint8Array.from(source)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      if (source[i] && (x === 0 || y === 0 || x === w - 1 || y === h - 1 || !source[i - 1] || !source[i + 1] || !source[i - w] || !source[i + w])) next[i] = 0
+    }
+    source = next
+  }
+  // (A sliver of cloth thinner than the inset, a strap: spread from the outline as before.)
+  let kept = 0, all = 0
+  for (let i = 0; i < w * h; i++) { all += mask[i]; kept += source[i] }
+  if (kept < all * 0.5) source = mask
+  radius += source === mask ? 0 : inset
+  mask = source
   const filled = Uint8Array.from(mask)
   let frontier = []
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
