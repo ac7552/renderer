@@ -19,6 +19,7 @@ import { accessoryMaterial, beltGeometry, buckleGeometry, heelRise, heelStemGeom
 import { shoeTexture, viewTexture } from "lib/garments/print"
 import { lastFor, shaftShare } from "lib/garments/lasts"
 import { hullGeometry } from "lib/garments/hull"
+import { OPEN_SHAPED, openGeometry } from "lib/garments/open_shape"
 import { lastGeometry, onLast } from "lib/garments/last_shape"
 import { loadTemplate, templateFor, templateGeometry, templateNow, templatesIndexed } from "lib/garments/templates"
 import { fitPose, projectAngled, readAngled } from "lib/garments/angled"
@@ -509,6 +510,7 @@ export class FittingStage {
     // from the side photo, over the drawing style.
     const made = shoes && lastFor(shoes.words ?? `${shoes.name ?? ""} ${shoes.family ?? ""}`, shoes.style, shoes.shoeSide)
     const last = shoes && { style: shoes.style, family: made.family, ...made.params }
+    this.feet.last = last
     // A shaft's height from the listing's words ("knee-high", "mid-calf"), against this body's knee.
     if (last) {
       const share = shaftShare(shoes.words ?? shoes.name)
@@ -591,6 +593,9 @@ export class FittingStage {
         // toe box, not a block carved and rounded every way.
         const geometry = (template && templateGeometry(body, frame, side, shoes.shoeSide, views, fitted, template))
           || (onTheLast && lastGeometry(body, frame, side, shoes.shoeSide, views, last))
+          // A sandal or a slide whose side photo shows its openings: a footbed and straps hugging the foot
+          // (open_shape.js), not a carved block.
+          || (photoShaped && OPEN_SHAPED.has(last.family) && shoes.shoeSide.open && openGeometry(body, frame, side, shoes.shoeSide, views, last))
           || (photoShaped && hullGeometry(body, frame, side, shoes.shoeSide, views, last, { depth: shoes.shoeDepth ?? null }))
           || (photoShaped && photoShoeGeometry(body, frame, side, shoes.shoeSide, last, { laces: relief })) || shoeGeometry(body, frame, side, last)
         this.feet.shoes[side] = hang(new THREE.Mesh(geometry, [sole, upper, laces, collar, eyelets]), side, heeled)
@@ -729,8 +734,28 @@ export class FittingStage {
       const plain = new Float32Array(3 * n)
       for (let i = 0; i < n; i++) sample(plainUV[2 * i], plainUV[2 * i + 1], plain, 3 * i)
       geometry.setAttribute("aPlain", new THREE.BufferAttribute(plain, 3))
-      // (The padded collar keeps its own leather: the photo shows the roll only edge on.)
-      const [sole, upper, laces] = mesh.material
+      // (The padded collar keeps its own leather: the photo shows the roll only edge on.) On a template its
+      // collar, lining and insole take the photo's colour just under the topline round the heel (what the
+      // photo shows of the collar), a shade darker: a grey runner's lining isn't the brown of a boot's, and
+      // from behind the lining shows over the counter.
+      const [sole, upper, laces, collar] = mesh.material
+      const photoFrame = geometry.userData.photo
+      if (collar && photoFrame?.hull?.template && !shoes.collar) {
+        const p = geometry.attributes.position.array, nrm = geometry.attributes.normal.array, s = photoFrame.length / 0.27
+        const sum = [0, 0, 0]
+        let count = 0
+        const upperGroup = geometry.groups.find(g => g.materialIndex === 1), seen = new Set()
+        for (let k = upperGroup?.start ?? 0; upperGroup && k < upperGroup.start + upperGroup.count; k++) {
+          const i = geometry.index.array[k]
+          if (seen.has(i)) continue
+          seen.add(i)
+          const u = (p[3 * i + 2] - photoFrame.back) / photoFrame.length
+          if (u < 0.04 || u > 0.35 || Math.abs(nrm[3 * i]) < 0.5 || p[3 * i + 1] < photoFrame.top(u) - 0.02 * s) continue
+          for (let c = 0; c < 3; c++) sum[c] += plain[3 * i + c]
+          count++
+        }
+        if (count > 20) collar.color.setRGB(...sum.map(v => (v / count) * 0.8))
+      }
       for (const m of [sole, upper]) {
         m.map = texture
         m.color.set(0xffffff)

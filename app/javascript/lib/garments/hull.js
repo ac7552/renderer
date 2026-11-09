@@ -20,8 +20,9 @@ const OPEN_FAMILIES = new Set(["sandal", "slide", "pump", "flat"])
 // shoeView readings (kind top/back/front, with shoes[].silhouette) for the other photos; style: the last
 // (accessories.js's), for the toe room and the upper's thickness.
 // depth: the side photo's depth map (depth.js's readDepth), or null: with it the visible side takes the
-// photo's relief; without, the cross-sections are rounded from the silhouette alone.
-export function hullGeometry(body, frame, side, outline, views, style, { depth = null } = {}) {
+// photo's relief; without, the cross-sections are rounded from the silhouette alone. only: (u, y) => whether
+// to keep that part of the side photo (all of it when null).
+export function hullGeometry(body, frame, side, outline, views, style, { depth = null, only = null } = {}) {
   const s = (frame.top - frame.floor) / 1.76
   const floor = frame.floor, thick = (style.thick ?? 0.007) * s
   // The foot's reach: heel to toes, from the leg's slices up to the ankle (the heel's back is the furthest
@@ -158,6 +159,8 @@ export function hullGeometry(body, frame, side, outline, views, style, { depth =
         if (z < zb || z > zf) continue
       }
       if (openAt && !openAt(u, y)) { carved++; continue }
+      // (Only part of the shoe, when asked: an open shoe's stem under its footbed, open_shape.js.)
+      if (only && !only(u, y)) continue
       sideIn[k * ny + j] = 1
     }
   }

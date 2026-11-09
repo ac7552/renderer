@@ -110,6 +110,10 @@ export function lastFor(words, style, side) {
     params.square = clamp(2.3 - m.taper * 8, 1.5, 3.0)
     params.measured = true
   }
+  // A thong (a flip-flop): its strap a V from a post between the toes.
+  // (Havaianas' are flip-flops unless the listing says slide.)
+  const said = String(words ?? "")
+  if (/flip[- ]?flops?|\bthongs?\b|toe[- ]post/i.test(said) || (/havaianas/i.test(said) && !/\bslides?\b/i.test(said))) params.thong = true
   // Laced, unless the family isn't or the listing says it's pulled or zipped on.
   if (/slip[- ]?on|pull[- ]?on|\bzip|chelsea|wellington|mule|clog|elastic/i.test(String(words ?? ""))) params.laces = false
   return { family, params }
