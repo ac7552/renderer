@@ -1509,6 +1509,8 @@ export default class extends Controller {
   // image comes back once and is deleted on the server; here it lives only as a blob in this tab.
 
   async studioPhoto() {
+    // (Only where taking a photo is turned on for this person: the server gives the studio's address then.)
+    if (!this.hasStudioUrlValue) return
     const snapshot = this.stage.snapshot()
     if (!snapshot || snapshot.items.length === 0) {
       this.showStudio("Add your measurements and at least one item first.")
