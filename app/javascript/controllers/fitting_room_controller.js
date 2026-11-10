@@ -31,7 +31,7 @@ const LOOK_STRICT = typeof location !== "undefined" && new URLSearchParams(locat
 
 const EXAMPLES_CM = {
   men: { chest: 101.6, waist: 86.4, shoulders: 45.5, arm: 65.5, height: 178, hips: 101, inseam: 81, foot: 26.5, ball: 9.8 },
-  women: { chest: 89, waist: 68, shoulders: 39.5, arm: 58, height: 165, hips: 93, inseam: 76, foot: 24, ball: 9 }
+  women: { chest: 85, waist: 63, shoulders: 38.5, arm: 58, height: 165, hips: 89, inseam: 76, foot: 24, ball: 9 }
 }
 const REQUIRED = ["chest", "waist", "shoulders", "arm", "height"]
 // How much the hips are guessed to grow for each cm of waist, when they aren't given (see update).
