@@ -92,6 +92,8 @@ export function* coarseFirst(fine, coarse, body, phases) {
     yield phase
   }
   carry(fine.x, drape.pattern(), carried)
+  // (Its copy on the graphics card, if it had one, isn't needed any more.)
+  Drape.gpu?.release(drape)
   fine.v.fill(0)
   fine.releaseBands()
   fine.closeSeams()

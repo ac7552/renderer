@@ -16,6 +16,23 @@
 import { prepareBody, sewingFor } from "lib/garments/dress"
 import { fieldData } from "lib/garments/remote_drape"
 import { HangerDrape } from "lib/garments/hanger"
+import { Drape } from "lib/garments/drape"
+import { GpuDrape } from "lib/garments/gpu_drape"
+
+// The graphics card's solver (gpu_drape.js), started when the worker boots unless the page says not to
+// (?gpu=off): each drape then runs where it's quicker, the card or here. Nothing waits for it to start
+// longer than it takes; without WebGPU it's null and everything runs here as before.
+let gpuStarting = null
+
+// The page's settings for the worker (remote_drape.js sends them as it boots it).
+export function configure({ gpu = true } = {}) {
+  if (!gpu || gpuStarting) return
+  gpuStarting = GpuDrape.start({ force: gpu === "force" }).then(found => {
+    Drape.gpu = found
+    if (found) console.info(`[gpu] drape: on ${found.description}`)
+    return found
+  })
+}
 
 const jobs = new Map()
 // How often the cloth is sent back while it settles (ms), so the page shows it moving.
@@ -33,10 +50,13 @@ export function handle(message, post) {
     const job = jobs.get(message.id)
     if (job) job.dropped = true
     jobs.delete(message.id)
+    // (Its copy on the graphics card let go, and the coarse cloth's if it was still on it.)
+    if (job?.drape) { Drape.gpu?.release(job.drape); if (job.drape.coarse) Drape.gpu?.release(job.drape.coarse) }
   }
 }
 
 async function sew({ id, item, body, over, egg, measures, arms }, post) {
+  await gpuStarting
   const { frame, field } = prepareBody(body, egg, over, { arms })
   const sewing = sewingFor({ item, body, frame, field, measures })
   const job = { drape: sewing.drape, dropped: false }
@@ -84,6 +104,8 @@ async function run(job, steps, each, progress) {
     const end = performance.now() + SLICE
     while (performance.now() < end) {
       const next = steps.next()
+      // (A frame on the graphics card: its points read back before the drape looks at them.)
+      if (Drape.gpu?.pending.size) await Drape.gpu.sync()
       if (next.done) return !job.dropped
       each(next.value)
     }

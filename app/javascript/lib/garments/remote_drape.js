@@ -49,6 +49,7 @@ self.onmessage = async event => {
     try {
       const url = await load(resolve(message.entry, message.base, message.map, message.base), message.map, message.base)
       module = await import(url)
+      module.configure?.(message.options ?? {})
       post({ type: "ready" })
       for (const m of waiting.splice(0)) module.handle(m, post)
     } catch (error) {
@@ -83,7 +84,10 @@ export class RemoteDrape {
     for (const worker of workers) {
       worker.onmessage = event => this.receive(event.data)
       worker.onerror = event => this.fail(event.message || "the drape worker stopped")
-      worker.postMessage({ type: "boot", entry: "lib/garments/drape_worker", map, base: location.href })
+      // (?gpu=off keeps the drape off the graphics card; ?gpu=force puts every drape on it: gpu_drape.js.)
+      const asked = new URLSearchParams(location.search).get("gpu")
+      const options = { gpu: asked === "off" ? false : asked === "force" ? "force" : true }
+      worker.postMessage({ type: "boot", entry: "lib/garments/drape_worker", map, base: location.href, options })
     }
   }
 

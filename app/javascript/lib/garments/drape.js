@@ -58,6 +58,9 @@ const MAX_SEW_STEP = 0.0025   // metres a seam closes in one small step, at most
 export const SQUEEZE = Number(typeof location !== "undefined" && new URLSearchParams(location.search).get("squeeze")) || 300
 
 export class Drape {
+  // The graphics card's solver, where the drape runs in a worker with WebGPU (gpu_drape.js's GpuDrape), or null.
+  static gpu = null
+
   // cloth: from cloth.js; start: Float32Array placed positions (place.js); body: { positions, normals, index }
   // of the posed skin (and its SkinField as `field`, if it's already been made).
   // options: fabric (a CLOTHS name), friction (how much of its sideways movement cloth touching the skin
@@ -248,7 +251,22 @@ export class Drape {
   // One frame (1/60 s). gravity: on or off (off while the seams close), or a share of it.
   // still: the cloth keeps no speed from one small step to the next, so it eases into shape instead of
   // springing (see phases' relaxFrames).
+  // Where Drape.gpu is set (gpu_drape.js's GpuDrape, in the drape's worker), the frame may go to the graphics
+  // card instead: its points are read back after it (the worker waits for Drape.gpu.sync() before going on).
   step({ gravity = true, sew = !this.sewn, still = false } = {}) {
+    const gpu = Drape.gpu
+    if (gpu && !this.noGpu) {
+      if (gpu.step(this, { gravity, sew, still })) { this.frame++; return }
+      const t = performance.now()
+      this.stepCpu({ gravity, sew, still })
+      gpu.cpuTime(this, performance.now() - t)
+      return
+    }
+    this.stepCpu({ gravity, sew, still })
+  }
+
+  // The frame on the CPU (in WebAssembly where it's there: cloth_kernel.js).
+  stepCpu({ gravity = true, sew = !this.sewn, still = false } = {}) {
     const h = FRAME / SUBSTEPS
     const kernel = this.kernel
     // (A new skin field into the kernel's memory first: it may move the arrays taken below.)
