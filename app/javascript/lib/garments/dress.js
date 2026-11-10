@@ -1211,7 +1211,7 @@ export class DrapedTop {
   // A tucked top isn't drawn from a little below the waistband's top down: it's inside the pants there,
   // pressed so close to the body that, drawn, it would show through them in places.
   hideTucked() {
-    this.geometry.attributes.aHide.array.set(this.tuckedAway(this.drape.x, TUCK_HIDDEN, this.rim))
+    this.geometry.attributes.aHide.array.set(this.tuckedAway(this.drape.x, TUCK_HIDDEN, this.bandRim))
     this.geometry.attributes.aHide.needsUpdate = true
   }
 
@@ -1220,7 +1220,8 @@ export class DrapedTop {
   setRim(points) {
     const table = this.drape.tuck.table
     const rim = points.map(([x, y, z]) => [Math.atan2(x, z - table.centreAt(y)), y]).sort((a, b) => a[0] - b[0])
-    this.rim = rim.length >= 8 ? rim : null
+    // (Not this.rim: that's the cloth's thickness along its edges, makeRim.)
+    this.bandRim = rim.length >= 8 ? rim : null
     this.hideTucked()
   }
 
