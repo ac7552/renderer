@@ -946,9 +946,21 @@ class GarmentImport
     "coat" => /coat|jacket/i, "trousers" => /trouser|pant|jean/i
   }.freeze
 
+  # Shoes are off until they're steadier (lasts.js, templates.js): a shoe's link answers as a hat's does.
+  # FITROOM_FOOTWEAR=on turns them back on; tests set GarmentImport.footwear directly.
+  class << self
+    attr_writer :footwear
+
+    def footwear? = @footwear.nil? ? ENV["FITROOM_FOOTWEAR"].to_s.strip.downcase.in?(%w[on 1 true]) : @footwear
+  end
+
   # Shoes, socks or a belt: their look (a shoe's style, a belt's buckle), colour and cloth, and the shop's sizes
   # to pick from. Nothing is measured: they're drawn on the mannequin as they look.
   def accessory(product, kind, source_url)
+    if kind == "shoes" && !self.class.footwear?
+      raise Error.new("not_supported", "Fitroom can't try on shoes yet. It works with tops, dresses, jackets, coats and pants.")
+    end
+
     # (The shop's tags count as its category: a boot filed only under "boots".)
     tags = Array(product[:tags]).reject { it.to_s.include?(" - ") || it.to_s.casecmp?(product[:name].to_s) }.join(" ")
     words = [ *product.values_at(:name, :category, :description), tags ].join(" ")
