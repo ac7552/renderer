@@ -17,6 +17,10 @@ module Api
           elsif params[:photo_kind].present? then GarmentImport.from_photo(kind: params[:photo_kind], style: params[:photo_style])
           else return render(json: { error: "invalid", message: "Send a url or the text of a size chart." }, status: :unprocessable_entity)
           end
+        # (A shoe read for someone with shoes on is kept by its link for an hour: not for someone without.)
+        if garment[:garment] == "shoes" && !GarmentImport.footwear?
+          raise GarmentImport::Error.new("not_supported", "Fitroom can't try on shoes yet. It works with tops, dresses, jackets, coats and pants.")
+        end
         render json: { garment: }
       rescue GarmentImport::Error => e
         render json: { error: e.code, message: e.message }, status: :unprocessable_entity

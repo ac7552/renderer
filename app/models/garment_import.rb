@@ -946,12 +946,13 @@ class GarmentImport
     "coat" => /coat|jacket/i, "trousers" => /trouser|pant|jean/i
   }.freeze
 
-  # Shoes are off until they're steadier (lasts.js, templates.js): a shoe's link answers as a hat's does.
-  # FITROOM_FOOTWEAR=on turns them back on; tests set GarmentImport.footwear directly.
+  # Shoes are off until they're steadier (lasts.js, templates.js): a shoe's link answers as a hat's does,
+  # unless an admin has turned the "footwear" feature on for this person (Feature). Tests set
+  # GarmentImport.footwear directly.
   class << self
     attr_writer :footwear
 
-    def footwear? = @footwear.nil? ? ENV["FITROOM_FOOTWEAR"].to_s.strip.downcase.in?(%w[on 1 true]) : @footwear
+    def footwear? = @footwear.nil? ? Feature.on?("footwear") : @footwear
   end
 
   # Shoes, socks or a belt: their look (a shoe's style, a belt's buckle), colour and cloth, and the shop's sizes

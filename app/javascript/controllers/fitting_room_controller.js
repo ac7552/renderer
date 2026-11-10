@@ -76,9 +76,12 @@ export default class extends Controller {
     "studio", "studioFrame", "studioStatus", "studioDownload", "studioSwitch", "studioLookOption", "studioCompareOption", "exact", "lookAi",
     "loading", "loadingLabel", "loadingBar", "loadingActions", "scene", "stage", "aiButton", "stageToast", "seeIn3d",
     "heightFeet", "heightInches", "heightImperial", "heightMetric", "pantsOnly", "shoesOnly", "slider", "tuck",
-    "bodyPhotoFront", "bodyPhotoSide", "bodyPhotoFrontLabel", "bodyPhotoSideLabel", "bodyPhotoButton", "bodyPhotoStatus", "bodyPhotoResult"
+    "bodyPhotoFront", "bodyPhotoSide", "bodyPhotoFrontLabel", "bodyPhotoSideLabel", "bodyPhotoButton", "bodyPhotoStatus", "bodyPhotoResult",
+    "saveButton"
   ]
-  static values = { fitsUrl: String, importUrl: String, studioUrl: String, lookUrl: String, tryOnUrl: String, warmUrl: String, garment: Object, dress: Object }
+  // savedFitsUrl and profileUrl: only for someone signed in to an account (they can save fits).
+  static values = { fitsUrl: String, importUrl: String, studioUrl: String, lookUrl: String, tryOnUrl: String, warmUrl: String, garment: Object, dress: Object,
+    savedFitsUrl: String, profileUrl: String }
 
   connect() {
     this.unit = this.unitTargets.find(radio => radio.checked)?.value ?? "in"
@@ -131,6 +134,12 @@ export default class extends Controller {
     this.trayPhotos = []
     this.renderTray()
     this.update()
+    // Opened from a saved fit (/?fit=ID, from the account page): put it back on.
+    const fit = new URLSearchParams(location.search).get("fit")
+    if (fit && this.hasSavedFitsUrlValue) {
+      history.replaceState(null, "", location.pathname + location.hash)
+      this.openSavedFit(fit)
+    }
   }
 
   disconnect() {
@@ -252,7 +261,9 @@ export default class extends Controller {
         // Each half wears the one-piece's photos, its own part of them (re-draped above or below the waist).
         const photos = garment.photo ? { photo: garment.photo, back_photo: garment.back_photo ?? null, photoPart: kind === "top" ? "upper" : "lower",
           photoRole: garment.photoRole ?? null, photoRoles: garment.photoRoles ?? null, photoIndex: garment.photoIndex ?? null, photoBackIndex: garment.photoBackIndex ?? null } : {}
-        const item = { garment: { ...part, women: garment.women, ...photos }, selected: null, fit: null }
+        const half = { ...part, women: garment.women, ...photos }
+        // (Each half as it came, for a saved fit: see saveFit.)
+        const item = { garment: half, source: savable(half), selected: null, fit: null }
         this.outfit[kind] = item
         return item
       })
@@ -267,7 +278,9 @@ export default class extends Controller {
       return
     }
     const kind = KINDS[garment.garment] ? garment.garment : "jacket"
-    const item = { garment, selected: null, fit: null }
+    // source: the garment as it came, before this page's readings of its photos are added to it, for a saved
+    // fit (saveFit): opened again, it's read again as now.
+    const item = { garment, source: savable(garment), selected: null, fit: null }
     this.outfit[kind] = item
     this.renderOutfit()
     if (garment.photo && TRY_ON_KINDS.includes(kind)) this.warmTryOn()
@@ -1040,6 +1053,90 @@ export default class extends Controller {
   // A different look for an item ("Looks like" or "Fabric" on its card): only the drawing changes.
   items() {
     return ORDER.filter(kind => this.outfit[kind]).map(kind => ({ kind, ...this.outfit[kind] }))
+  }
+
+  // Saved fits (for someone signed in to an account): the outfit, each item's size, the measurements (cm),
+  // the mannequin and how it stands, saved to the account; opened again from the account page.
+
+  fitSnapshot() {
+    const given = Object.entries(this.readMeasurements()).filter(([, value]) => value > 0)
+    return {
+      version: 1,
+      unit: this.unit,
+      bodyType: this.bodyType,
+      body: Object.fromEntries(given.map(([part, value]) => [part, toCm(value, this.unit)])),
+      pose: this.element.querySelector('input[name="pose"]:checked')?.value ?? null,
+      tucked: this.element.querySelector('input[name="tuck"]:checked')?.value === "in",
+      items: this.items().map(({ kind, garment, source, selected }) => ({ kind, garment: source ?? savable(garment), selected: selected ?? null }))
+    }
+  }
+
+  async saveFit() {
+    const items = this.items()
+    if (!items.length) { this.toast("Put some clothes on first, then save the fit."); return }
+    const name = items.map(item => item.garment.name).filter(Boolean).join(" + ").slice(0, 100) || "My fit"
+    if (this.hasSaveButtonTarget) this.saveButtonTarget.disabled = true
+    try {
+      const response = await fetch(this.savedFitsUrlValue, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content ?? "" },
+        body: JSON.stringify({ name, data: this.fitSnapshot() })
+      })
+      const answer = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(answer.message ?? "The fit couldn't be saved. Try again in a moment.")
+      this.toast(`Saved “${answer.name}”. Your fits are on your account page.`)
+    } catch (error) {
+      this.toast(error.message.startsWith("Failed to fetch") ? "Can't reach Fitroom to save the fit." : error.message)
+    } finally {
+      if (this.hasSaveButtonTarget) this.saveButtonTarget.disabled = false
+    }
+  }
+
+  async openSavedFit(id) {
+    this.showLoading("Getting your fit…")
+    try {
+      const response = await fetch(`${this.savedFitsUrlValue}/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } })
+      if (!response.ok) throw new Error("That saved fit isn't there any more.")
+      const fit = await response.json()
+      this.restoreFit(fit.data ?? {})
+      this.toast(`Opened “${fit.name}”.`)
+    } catch (error) {
+      this.showLoading(null)
+      this.toast(error.message)
+    }
+  }
+
+  // A saved fit back on: the unit, the mannequin, the clothes and their sizes, the numbers, the pose.
+  restoreFit(data) {
+    if (data.unit && data.unit !== this.unit) {
+      this.unitTargets.forEach(radio => { radio.checked = radio.value === data.unit })
+      this.unit = data.unit
+      this.showUnit()
+      this.renderEditor()
+    }
+    if (data.bodyType && data.bodyType !== this.bodyType) {
+      this.shownBodyType = data.bodyType
+      this.bodyTypeTargets.forEach(input => { input.checked = input.value === data.bodyType })
+      this.stage.setBodyType(data.bodyType)
+    }
+    this.outfit = {}
+    for (const { kind, garment, selected } of data.items ?? []) {
+      if (!garment) continue
+      this.addItem(structuredClone(garment))
+      const at = this.outfit[kind] ?? this.outfit[KINDS[garment.garment] ? garment.garment : "jacket"]
+      if (at && selected) at.selected = selected
+    }
+    this.renderOutfit()
+    if (data.pose) {
+      const radio = this.element.querySelector(`input[name="pose"][value="${CSS.escape(data.pose)}"]`)
+      if (radio) { radio.checked = true; this.stage.setPose(data.pose) }
+    }
+    const tuck = this.element.querySelector(`input[name="tuck"][value="${data.tucked ? "in" : "out"}"]`)
+    if (tuck) { tuck.checked = true; this.stage.setTucked(Boolean(data.tucked)) }
+    this.inputTargets.forEach(input => { input.value = "" })
+    this.writeHeight(null)
+    this.clearFromPhotos()
+    this.fillNumbers(data.body ?? {})
   }
 
   // Measurements
@@ -2138,6 +2235,23 @@ export default class extends Controller {
     }))
     values.height = this.readHeight()
     return values
+  }
+}
+
+// A garment as plain data to save (saveFit): no typed arrays, pictures or blob: addresses, and of the data:
+// URLs only the shop's photos themselves (what's worked out from them is worked out again when it's opened).
+const SAVED_PHOTOS = new Set(["photo", "back_photo", "closeup"])
+function savable(value) {
+  try {
+    return JSON.parse(JSON.stringify(value, (key, v) => {
+      if (typeof v === "string") return v.startsWith("blob:") || (v.startsWith("data:") && !SAVED_PHOTOS.has(key)) ? undefined : v
+      if (v === null || typeof v !== "object") return v
+      if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return undefined
+      for (const type of ["Blob", "ImageBitmap", "ImageData", "OffscreenCanvas", "HTMLElement"]) if (typeof globalThis[type] === "function" && v instanceof globalThis[type]) return undefined
+      return v
+    }))
+  } catch {
+    return null
   }
 }
 
