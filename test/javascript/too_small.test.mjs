@@ -85,3 +85,13 @@ test("a coat over a top is cut round the top as it's cut, its sleeves round the 
   // Nothing under it: the body as it is.
   assert.equal(overLayer(big, null), big)
 })
+
+test("an open tee hem goes round a belly bigger than its chart's waist, so it hangs down over it", () => {
+  // A 51 in chest (the waist guessed 110 cm, the hips 115), in a Parra tee: the M's and the XXXL's hems were
+  // both cut to 92% of the body there and rode up over the belly, a crop top.
+  const body = { chest: 129.5, waist: 110, hips: 115, shoulders: 51.5, arm: 65.5, height: 178, neck: 43, armpit: 21, bicep: 36, wrist: 17 }
+  for (const size of [{ chest: 112.6, waist: 88.4, shoulders: 46, sleeve: 20, length: 57.6 }, { chest: 132.9, waist: 104.4, shoulders: 54, sleeve: 22, length: 64 }]) {
+    const m = measures(STYLES.tee, size, body)
+    assert.ok(m.hem >= roundAtHem(body, m.length) + 2 - 0.01, `hem ${m.hem} round ${roundAtHem(body, m.length)}`)
+  }
+})

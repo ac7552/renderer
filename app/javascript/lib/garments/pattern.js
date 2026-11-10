@@ -289,7 +289,7 @@ export function measures(style, size, body, cut = null) {
     sleeve,
     // (An open hem, a tee's, is never cut much narrower round than the hips it falls to, or no wider than
     // its chest: cut to a women's waist, a fitted tee's hem rode up over the hips and read as cropped.)
-    hem: shaped ? Math.max(chest, shaped.hips) * 1.22 : Math.max(hemBand ? Math.min(size.waist ?? chest, chest) : Math.max(Math.min(size.waist ?? chest, chest), Math.min(chest, (body.hips ?? 0) * 0.92)) * 0.99, roundAtHem(body, length) * (hemBand ? 1 / (hemBand.stretch * RIB_GIVE) : 0.92)),
+    hem: shaped ? Math.max(chest, shaped.hips) * 1.22 : Math.max(hemBand ? Math.min(size.waist ?? chest, chest) : Math.max(Math.min(size.waist ?? chest, chest), Math.min(chest, (body.hips ?? 0) * 0.92)) * 0.99, hemBand ? roundAtHem(body, length) / (hemBand.stretch * RIB_GIVE) : roundAtHem(body, length) + TIGHT_EASE),
     neckWidth,
     frontNeck: { stand: 6, shirtstand: 7, rib: 6, turtle: 5, crew: 8, hood: 8 }[style.collar] ?? 9,
     backNeck: 2,
@@ -315,8 +315,9 @@ export function measures(style, size, body, cut = null) {
 
 // How far round the body is where a top's hem falls, `length` (cm) down from the high point of the shoulder:
 // its waist above the waist's height (about 0.235 of its height), its hips from their height (0.335), between
-// the two in between. 0 when the body gives neither. A hem cut no smaller than it (a rib band's stretch aside)
-// stays down over the body instead of riding up over a belly or hips wider than the chart's waist.
+// the two in between. 0 when the body gives neither. A hem cut no smaller than it (a rib band's stretch aside;
+// an open hem with TIGHT_EASE over it) stays down over the body instead of riding up over a belly or hips wider
+// than the chart's waist: an open tee hem cut to 92% of a 110 cm belly rode up over it, a crop top in every size.
 export function roundAtHem(body, length) {
   const waist = body.waist ?? 0, hips = body.hips ?? waist
   if (!(waist > 0) || !(body.height > 0)) return 0
