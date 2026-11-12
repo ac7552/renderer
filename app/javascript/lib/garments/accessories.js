@@ -956,6 +956,15 @@ export function wrapShoePhoto(geometry, side, { views = [], foot = "L" } = {}) {
     // Never more than all of it; what's left is the plain colour.
     for (let c = 0; c < 4; c++) weights[4 * i + c] = sum > 1 ? w[c] / sum : w[c]
   }
+  // An open shoe's straps (open_shape.js) are read on the side photo where they were found on it, all round the foot.
+  const own = geometry.userData.photoUV
+  if (own) for (let i = 0; i < n; i++) {
+    if (!Number.isFinite(own[2 * i])) continue
+    uv[2 * i] = plain[2 * i] = own[2 * i]
+    uv[2 * i + 1] = plain[2 * i + 1] = 1 - own[2 * i + 1]
+    photo[i] = 1
+    weights[4 * i] = 1; weights[4 * i + 1] = weights[4 * i + 2] = weights[4 * i + 3] = 0
+  }
   geometry.setAttribute("uvTop", new THREE.BufferAttribute(uvs.top, 2))
   geometry.setAttribute("uvBack", new THREE.BufferAttribute(uvs.back, 2))
   geometry.setAttribute("uvFront", new THREE.BufferAttribute(uvs.front, 2))

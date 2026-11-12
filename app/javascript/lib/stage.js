@@ -592,6 +592,10 @@ export class FittingStage {
         this.dressFeet(shoes, socks)
       })
     }
+    // An open shoe, by its family, the listing's words or the openings its side photo shows (a strappy or a thong
+    // heel, a mule, a slingback: a pump by its heel), and not one a scan stands for (a clog, a closed mule).
+    const saidOpen = /\b(?:sandals?|slides?|flip[- ]?flops?|thongs?|mules?|sling[- ]?backs?|slippers?)\b/i.test(`${shoes?.name ?? ""} ${shoes?.words ?? ""}`.slice(0, 200))
+    const openShoe = photoShaped && !chosen && !onTheLast && shoes.shoeSide.open && (OPEN_SHAPED.has(last.family) || saidOpen || (last.family === "pump" && (shoes.shoeSide.openShare ?? 0) > 0.1))
     for (const side of ["L", "R"]) {
       if (socks) hang(new THREE.Mesh(sockGeometry(body, frame, side, socks.style), accessoryMaterial("knit", socks.color)), side)
       if (shoes) {
@@ -622,7 +626,7 @@ export class FittingStage {
           || (onTheLast && lastGeometry(body, frame, side, shoes.shoeSide, views, last))
           // A sandal or a slide whose side photo shows its openings: a footbed and straps hugging the foot
           // (open_shape.js), not a carved block.
-          || (photoShaped && OPEN_SHAPED.has(last.family) && shoes.shoeSide.open && openGeometry(body, frame, side, shoes.shoeSide, views, last))
+          || (openShoe && openGeometry(body, frame, side, shoes.shoeSide, views, last, { said: saidOpen }))
           || (photoShaped && hullGeometry(body, frame, side, shoes.shoeSide, views, last, { depth: shoes.shoeDepth ?? null }))
           || (photoShaped && photoShoeGeometry(body, frame, side, shoes.shoeSide, last, { laces: relief })) || shoeGeometry(body, frame, side, last)
         this.feet.shoes[side] = hang(new THREE.Mesh(geometry, [sole, upper, laces, collar, eyelets]), side, heeled)
