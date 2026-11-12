@@ -84,7 +84,10 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
   // stem begins and the photo's underside drops to the floor) the arch's line carried on up to the heel's back,
   // no higher than the photo's shoe there less the bed's thickness. Its top is the bed's thickness over that.
   let archAt = 0.3, archTop = -Infinity
-  if (heeled) for (let u = 0.04; u <= 0.5; u += 0.005) if (yBottom(u) > archTop) { archTop = yBottom(u); archAt = u }
+  // (The stem: where the photo's underside stands on the floor behind the arch; the arch's top just ahead of it.)
+  let stemFront = 0
+  if (heeled) for (let u = 0.02; u <= 0.45; u += 0.005) if (yBottom(u) < floor + 0.01 * s) stemFront = u
+  if (heeled) for (let u = stemFront + 0.005; u <= stemFront + 0.15; u += 0.005) if (yBottom(u) > archTop) { archTop = yBottom(u); archAt = u }
   const slope = heeled ? Math.max(0, (yBottom(archAt) - yBottom(archAt + 0.08)) / 0.08) : 0
   const seat = Math.min(thickest, 0.012 * s)
   const under = u => {
@@ -416,9 +419,11 @@ function stemRings(positions, index, { maskAt, bedBottom, floor, back, span, cen
       if (on) { from ??= u; to = u } else if (from != null) break
     }
     if (from == null) { if (rings.length) break; continue }
+    if (to - from > 0.4) console.warn('STEMLONG', y - floor, from, to, rings.length)
     if (to - from > 0.4) { if (rings.length < 3) return false; break }
     rings.push({ y, from, to })
   }
+  console.warn('STEM', JSON.stringify(rings.slice(0,40).map(r => [+(r.y - floor).toFixed(3), +r.from.toFixed(2), +r.to.toFixed(2)])))
   if (rings.length < 3) return false
   const base = positions.length / 3
   // (Each ring's ends eased over its neighbours': the photo's edge steps a pixel at a time.)
