@@ -2569,14 +2569,18 @@ export async function readShop(link) {
   if (photo && shoe) ({ photo, views: shoeViews, index: sideIndex } = await readShoePhotos(listing, front, photo))
   // The photo's shape (how high its arms are sewn in, how far its sleeves reach), which says how a top is
   // cut when the shop gives no chart. Only a photo of the garment on its own shows it.
-  const shape = photo && !worn ? await readTopShape(photo).catch(() => null) : null
+  // (Read from the photo with a light garment given its outline first, segment.js's outlineLight: a white tee
+  // on the shop's pale sweep read as the print on its chest alone, and was cut to the print's shape: short,
+  // narrow in the shoulder, sleeveless.)
+  const words = `${product_type} ${title} ${tags}`
+  const outlined = photo && !shoe && !worn && !BOTTOM_WORDS.test(`${product_type} ${title}`) ? await cleanPhoto(photo, "top", { timeout: OUTLINE_WAIT }).catch(() => photo) : photo
+  const shape = photo && !worn ? await readTopShape(outlined).catch(() => null) : null
   const bottomShape = photo && !worn ? await readBottomShape(photo).catch(() => null) : null
   // A dress's shape (its waist, where it widens, its hem, neckline and straps), which the import cuts it to.
-  const words = `${product_type} ${title} ${tags}`
   const dressShape = photo && !worn && DRESS_WORDS.test(words) && !/\bskirts?\b|\bskort/i.test(`${product_type} ${title}`) ? await readDressShape(photo).catch(() => null) : null
   // The back: a photo of it on its own from behind (or a later one on its own) whose outline matches the front's.
   // (Not for several garments together: their back is all of them again.)
-  const back = photo && !shoe && !worn && !listing.read[front]?.several ? await readBackPhoto(listing, picks.backs, { shape, bottomShape, front, words: `${product_type} ${title}` }) : null
+  const back = photo && !shoe && !worn && !listing.read[front]?.several ? await readBackPhoto(listing, picks.backs, { shape, bottomShape, front, words: `${product_type} ${title}`, frontPhoto: photo, outlined }) : null
   // The shop's close-up of the cloth, when it has one (its weave, its heather, its wash): the 3D view lays
   // it on as the fabric itself (texture.js). Texture only: never a front, a back or a side. (Not a shoe's.)
   const close = photo && !shoe ? await readCloseupPhoto(listing, picks.closeups) : null
@@ -2680,16 +2684,38 @@ async function readShoePhotos(listing, front, first) {
 // half: a dark knit photographed front and back under different light). A photo on a model, a close-up,
 // another colourway or the liner laid out beside it never matches. When the front's outline can't be read,
 // a photo whose role is the back is held to the colour alone.
+// How long (ms) the import waits for a photo's outline (segment.js's cleanPhoto) before reading it as it is.
+const OUTLINE_WAIT = 25000
 const BACK_TOLERANCE = 0.15, BACK_TOLERANCE_SAID = 0.3, BACK_COLOUR = 22
 const BOTTOM_WORDS = /\b(?:pants|trousers|jeans|denim|shorts|skirts?|skorts?|leggings|joggers|sweatpants|chinos|cargos?)\b/i
-async function readBackPhoto(listing, candidates, { shape, bottomShape, front, words = "" }) {
+async function readBackPhoto(listing, candidates, { shape, bottomShape, front, words = "", frontPhoto = null, outlined = null }) {
   const own = listing.photos[front]?.traits?.colour
   // Which outline to hold it to: a top's or a pair of pants' (each is read both ways; the other is noise).
   const bottoms = BOTTOM_WORDS.test(words)
   const mine = bottoms ? bottomShape : shape
+  // A light garment on a light backdrop reads as its print alone (its colour the print's, its outline none): a
+  // white long-sleeve with a graphic on its chest and a bigger one on its back had no back at all. Those are
+  // held to each other once each has its outline (segment.js's outlineLight, through cleanPhoto): the same
+  // cloth colour, the same outline.
+  const outlinedPair = async photo => {
+    if (bottoms || !frontPhoto || !outlined || outlined === frontPhoto) return false
+    const b = await cleanPhoto(photo, "top", { timeout: OUTLINE_WAIT }).catch(() => photo)
+    if (b === photo) return false
+    const [ca, cb] = await Promise.all([clothColor(outlined).catch(() => null), clothColor(b).catch(() => null)])
+    const sb = await readTopShape(b).catch(() => null)
+    if (!ca || !cb || colorGap(ca, cb) > 40) return false
+    const near = (p, q) => p && q && Math.abs(p / q - 1) < BACK_TOLERANCE
+    return Boolean(shape && sb && near(shape.length, sb.length) && near(shape.waist, sb.waist))
+  }
   for (const i of candidates) {
     const traits = listing.photos[i]?.traits
     if (!traits?.garment || traits.touches > 0) continue
+    // (The front given its outline: the candidate too, and the two held to each other so.)
+    if (outlined && outlined !== frontPhoto) {
+      const photo = await readShopPhoto(listing.photos[i].image.src)
+      if (photo && await outlinedPair(photo)) return { photo, index: i }
+      continue
+    }
     // (Its colour first, cheaply: a liner or another colourway laid out the same way isn't its back.)
     if (own && traits.colour && Math.hypot(0.5 * (own[0] - traits.colour[0]), own[1] - traits.colour[1], own[2] - traits.colour[2]) > BACK_COLOUR) continue
     const said = listing.read[i]?.role === "flat_back"

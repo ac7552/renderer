@@ -297,6 +297,7 @@ class GarmentImport
     # Length from the shoulder's high point (or, strapless, from the top edge) at size M, cm.
     LENGTHS_CM = { "mini" => 80, "knee" => 95, "midi" => 112, "maxi" => 140 }.freeze
     STRAPLESS_TOP = 18   # a strapless dress starts this far below where a strap would
+    STRAPLESS_BUST_EASE = 2
 
     # Every size's usual garment measurements, named as the shop names them (or XS to XL when it doesn't).
     def usual_sizes(cut, names = [])
@@ -309,6 +310,8 @@ class GarmentImport
           if cut[:stretch] && %w[fitted slim].include?(cut[:fit]) then [ bust, waist, hips ].map { (it * STRETCH_SHARE).round(1) }
           else [ bust, waist, hips ].zip(EASE.fetch(cut[:fit], EASE["slim"])).map { |b, e| (b + e).round(1) }
           end
+        # A strapless dress is held up by its bust: cut close there whatever its fit below.
+        chest = [ chest, bust + STRAPLESS_BUST_EASE ].min if cut[:sleeves] == "strapless"
         step = i - ordered.index { body_for(it, names)[0] >= LETTERS["M"][0] }.to_i
         length = LENGTHS_CM.fetch(cut[:length], 95) + step - (cut[:sleeves] == "strapless" ? STRAPLESS_TOP : 0)
         sleeve = { "long" => 59 + step * 0.5, "short" => 14 + step * 0.3 }[cut[:sleeves]]

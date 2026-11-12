@@ -92,3 +92,23 @@ test("a side slit leaves the side seam open from the hem up; one slit only on th
   // A mini has none.
   assert.deepEqual(names(draftTop("dress", size, body, { ...cut, length: "mini", shape: { ...cut.shape }, slit: "sides" })), [])
 })
+
+test("a strapless dress grips at its top edge and, widening to its hem in its photo, doesn't bulge at the hips", () => {
+  // GUIZIO's Cannes mini: slim, a bandeau top, its usual size S on the example woman (85 cm bust, 89 cm hips).
+  const her = { chest: 85, waist: 63, hips: 89, shoulders: 38.5, arm: 58, height: 165, armpit: 20 }
+  const s = { name: "S", chest: 89, waist: 75, hips: 101, length: 61 }
+  const cut = { sleeves: "strapless", neckline: "scoop", length: "mini", fit: "slim", stretch: false, fabric: "silk",
+                shape: { waist: 0.774, waist_at: 0.31, hips: 0.896, hem: 1.085 } }
+  const dress = draftTop("dress", s, her, cut)
+  const m = dress.measures
+  // Its top edge the body's round there (less than the bust), not the chart's bust.
+  const top = edge(dress, "front", "top")
+  assert.ok(Math.abs(2 * width(top) - m.grip / 2 * 2) < 0.2 && m.grip < 85 && m.grip > 76, `top edge ${2 * width(top)} of ${m.grip}`)
+  // Back out to its chest a little below.
+  const side = edge(dress, "front", "side_L")
+  assert.ok(Math.max(...side.map(p => p[0])) >= m.chest / 4 - 0.01)
+  // Hips between the waist and the hem, over the body's: not wider than the hem.
+  assert.ok(m.shaped.hips < m.hem && m.shaped.hips >= her.hips + 2 - 0.01 && m.shaped.hips < 95, `hips ${m.shaped.hips}, hem ${m.hem}`)
+  // The front and back sides still match (they're sewn together).
+  assert.equal(edge(dress, "back", "side_R").length, side.length)
+})

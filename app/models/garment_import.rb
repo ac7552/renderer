@@ -688,13 +688,22 @@ class GarmentImport
     seen = product[:shape][:length].to_f
     typical = TYPICAL_PHOTO_LENGTH.fetch(family)
     named_crop = product[:name].to_s.match?(/crop(?:ped)?\b/i)
+    # How much shorter than usual a tee's photo may make it. PHOTO_TEE_LENGTH is Kith's hung tees'; a tee laid
+    # flat shows wider for its length, and read by it a regular men's tee came out a crop top (Parra's chair tee,
+    # "Regular fit": 59 cm long in an L). So only as far as its words allow: a fifth for a women's tee or one its
+    # words cut short or boxy, a twentieth for one they call regular, a tenth otherwise.
+    words = product.values_at(:name, :description).join(" ")
+    least = if product[:women] || words.match?(/crop(?:ped)?\b|boxy|shrunken|baby tee|mini tee/i) then 0.8
+            elsif words.match?(/regular fit/i) then 0.95
+            else 0.9
+            end
     sizes.each_with_index.map do |size, i|
       before = usual[i]["length"]
       length = size["length"]
       length = before if length < before * 0.97 && seen >= typical * UNCROP.fetch(family, 9)
       if family == :tee && size["chest"] && product[:shape][:sleeve_down].to_f < 0.7
         read = PHOTO_TEE_LENGTH * seen * size["chest"] / 2
-        length = read.clamp([ before * 0.8, length ].min, [ before * 1.3, length ].max) if (read / length - 1).abs > 0.12
+        length = read.clamp([ before * least, length ].min, [ before * 1.3, length ].max) if (read / length - 1).abs > 0.12
       end
       length = [ length, before * [ seen / typical, 0.8 ].max ].min if family == :sweat && seen < typical * 0.85
       length = before * 0.8 if family == :jacket && named_crop && seen < typical * 0.95

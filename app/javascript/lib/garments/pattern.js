@@ -579,7 +579,7 @@ function dressStyle(style, cut) {
 // and flare): its side runs straight from the waist to the hem, and the hem curves (see sideAndHem).
 const HEM_FLARE = { fitted: 0.98, slim: 1.05, relaxed: 1.15, flared: 1.5 }
 const HEM_ONLY_FLARE = 1.3
-function shapeSkirt(m, size, body, cut) {
+function shapeSkirt(m, size, body, cut, hemAt = m.length) {
   const fit = cut?.fit ?? "slim"
   const roomy = fit === "relaxed" || fit === "flared"
   m.shaped = {
@@ -600,6 +600,15 @@ function shapeSkirt(m, size, body, cut) {
   if (shape?.waist && size.waist == null) m.shaped.waist = Math.max(body.waist + (cut.stretch ? -2 : 3), m.chest * shape.waist)
   // A shaped side can't come in to a waist wider than the chest.
   m.shaped.waist = Math.min(m.shaped.waist, m.chest)
+  // The photo shows its hips narrower than its hem (it widens all the way down, an A-line): the hips no wider
+  // than the straight line from its waist to its hem gives them (but over the body's, with a little room). A
+  // slim strapless mini with the usual hips for its size, wider than the hem its photo gave it, hung as a barrel.
+  if (shape?.hips && shape.hem && shape.hips < shape.hem && hemAt > m.shaped.hipAt && m.shaped.hipAt > m.shaped.waistAt) {
+    const along = (m.shaped.hipAt - m.shaped.waistAt) / (hemAt - m.shaped.waistAt)
+    const line = m.shaped.waist + (m.hem - m.shaped.waist) * along
+    const least = (body.hips ?? body.chest) * (cut.stretch ? 0.97 : 1) + (cut.stretch ? 0 : 2)
+    m.shaped.hips = Math.min(m.shaped.hips, Math.max(line, least))
+  }
 }
 
 // A body panel's side, from the hem up to `top` (the underarm, or the top edge's corner), and its hem: a
@@ -663,12 +672,17 @@ const STRAPS = {
 // cloth in rather than folding it, drape.js's SQUEEZE.)
 const NECK_DEPTH = { round: 9, high: 3, straight: 11, scoop: 15, plunge: 24, cowl: 15 }
 
+// A strapless dress's top edge: how far round it is as a share of the bust (the chest above the bust is smaller
+// round), and how far below it (cm) the dress is back out to its chest measurement.
+const GRIP_SHARE = 0.94, GRIP_DROP = 6
+
 // A dress with no sleeves: sleeveless, on straps, strapless, or over one shoulder. Its armholes, neckline and
 // top edge are finished edges (no bands); only its side and shoulder (strap) seams are sewn.
 function draftDress(size, body, cut) {
   const style = { ...STYLES.dress, fabric: DRESS_CLOTH[cut.fabric] ?? "jersey" }
   const m = measures({ ...style, sleeve: "short" }, size, body, cut)
-  shapeSkirt(m, size, body, cut)
+  // (A strapless dress's length runs from its top edge, lower than the shoulder: see below.)
+  shapeSkirt(m, size, body, cut, m.length + (cut.sleeves === "strapless" ? Math.max(11, (body.armpit ?? 19) - 5) : 0))
   const { height: flounce, count: flounces } = flounceFor(m, cut)
   m.length -= flounce * flounces
   setSlit(m, cut, flounce)
@@ -679,6 +693,10 @@ function draftDress(size, body, cut) {
   if (cut.sleeves === "strapless") {
     // Straight across just above the bust, at the front of the armpits; its length runs from that top edge.
     m.top = Math.max(11, (body.armpit ?? 19) - 5)
+    // Its top edge grips the body (boning, elastic, a foldover band: it's all that holds the dress up), so it's
+    // cut to the body there, above the bust, whatever the chart's bust: cut to a chart's 93 cm on an 85 cm bust
+    // it stood off the back like a barrel's rim.
+    if (body.chest > 0) m.grip = Math.min(m.chest, body.chest * GRIP_SHARE + 1)
     for (const side of ["front", "back"]) panels[side] = { edges: topless(m, side, null), place: { at: "torso", side }, fabric: "main" }
     for (const s of ["L", "R"]) seams.push(["front", `side_${s}`, "back", `side_${s}`])
   } else if (cut.sleeves === "one_shoulder") {
@@ -724,14 +742,17 @@ function topless(m, side, strap) {
   const cw = m.chest / 4, hw = m.hem / 4
   const top = -(m.top + (side === "back" ? 1.5 : 0))
   const hem = strap ? -m.length : top - m.length
-  const shaped = sideAndHem(m, [cw, top], -hem)
+  // (Strapless, gripping: the top edge at the grip's width, out to the chest's GRIP_DROP below it.)
+  const tw = !strap && m.grip && m.grip / 4 < cw - 0.2 ? m.grip / 4 : null
+  const shaped = sideAndHem(m, [cw, tw ? top - GRIP_DROP : top], -hem)
+  if (tw) shaped.side = [...shaped.side, [tw, top]]
   const sideLine = halfSide => shaped.side.map(([x, y]) => [x * halfSide, y])
   const plusSide = sideLine(1), minusSide = reversed(sideLine(-1))
   // +x is the wearer's left on the front and their right on the back.
   const plus = side === "front" ? "L" : "R", minus = side === "front" ? "R" : "L"
   const edges = [{ name: "hem", points: shaped.hem }, { name: `side_${plus}`, points: plusSide }]
   if (!strap) {
-    edges.push({ name: "top", points: line([cw, top], [-cw, top]) })
+    edges.push({ name: "top", points: line([tw ?? cw, top], [-(tw ?? cw), top]) })
   } else {
     // The strap's side: +x on the front, -x on the back.
     const sign = (side === "front") === (strap === "L") ? 1 : -1
