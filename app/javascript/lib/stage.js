@@ -759,6 +759,8 @@ export class FittingStage {
       const plain = new Float32Array(3 * n)
       for (let i = 0; i < n; i++) sample(plainUV[2 * i], plainUV[2 * i + 1], plain, 3 * i)
       geometry.setAttribute("aPlain", new THREE.BufferAttribute(plain, 3))
+      // (A scanned shoe's own detail on its plain colour, templates.js's scanGeometry: none on other shoes.)
+      if (!geometry.attributes.aShade) geometry.setAttribute("aShade", new THREE.BufferAttribute(new Float32Array(n).fill(1), 1))
       // (The padded collar keeps its own leather: the photo shows the roll only edge on.) On a template its
       // collar, lining and insole take the photo's colour just under the topline round the heel (what the
       // photo shows of the collar), a shade darker: a grey runner's lining isn't the brown of a boot's, and
@@ -791,13 +793,13 @@ export class FittingStage {
           shader.uniforms.uFront = { value: others.front ?? (geometry.userData.frontFromBack ? others.back : null) ?? blank }
           shader.uniforms.uAngled = { value: angledTexture ?? blank }
           shader.vertexShader = shader.vertexShader
-            .replace("#include <common>", "#include <common>\nattribute vec3 aPlain;\nattribute vec4 aViews;\nattribute vec2 uvTop;\nattribute vec2 uvBack;\nattribute vec2 uvFront;\nattribute vec2 uvAngled;\nattribute float aAngled;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
-            .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPlain = aPlain;\nvViews = aViews;\nvTop = uvTop;\nvBack = uvBack;\nvFront = uvFront;\nvAngledUv = uvAngled;\nvAngled = aAngled;")
+            .replace("#include <common>", "#include <common>\nattribute vec3 aPlain;\nattribute vec4 aViews;\nattribute vec2 uvTop;\nattribute vec2 uvBack;\nattribute vec2 uvFront;\nattribute vec2 uvAngled;\nattribute float aAngled;\nattribute float aShade;\nvarying float vShade;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
+            .replace("#include <begin_vertex>", "#include <begin_vertex>\nvShade = aShade;\nvPlain = aPlain;\nvViews = aViews;\nvTop = uvTop;\nvBack = uvBack;\nvFront = uvFront;\nvAngledUv = uvAngled;\nvAngled = aAngled;")
           shader.fragmentShader = shader.fragmentShader
-            .replace("#include <common>", "#include <common>\nuniform sampler2D uTop;\nuniform sampler2D uBack;\nuniform sampler2D uFront;\nuniform sampler2D uAngled;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
+            .replace("#include <common>", "#include <common>\nuniform sampler2D uTop;\nuniform sampler2D uBack;\nuniform sampler2D uFront;\nuniform sampler2D uAngled;\nvarying float vShade;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
             .replace("#include <map_fragment>", `#include <map_fragment>
               float rest = max( 0.0, 1.0 - vViews.x - vViews.y - vViews.z - vViews.w );
-              diffuseColor.rgb = diffuseColor.rgb * vViews.x + texture2D( uTop, vTop ).rgb * vViews.y + texture2D( uBack, vBack ).rgb * vViews.z + texture2D( uFront, vFront ).rgb * vViews.w + vPlain * rest;
+              diffuseColor.rgb = diffuseColor.rgb * vViews.x + texture2D( uTop, vTop ).rgb * vViews.y + texture2D( uBack, vBack ).rgb * vViews.z + texture2D( uFront, vFront ).rgb * vViews.w + vPlain * vShade * rest;
               // The angled photo where its camera saw the shoe, over all but the side photo's own side walls.
               diffuseColor.rgb = mix( diffuseColor.rgb, texture2D( uAngled, vAngledUv ).rgb, clamp( vAngled * ( 1.0 - 0.75 * vViews.x ), 0.0, 1.0 ) );`)
         }

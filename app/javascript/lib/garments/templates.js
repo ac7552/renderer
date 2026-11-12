@@ -24,6 +24,8 @@ const indexed = typeof fetch === "function" ? fetch("/shoes/index.json", { cache
 // ankle): { name, own } (own: the family's template, so its words' lacing holds). words: the listing's; a shoe
 // whose words lace it is only ever switched to a laced template.
 export function templateFor(style, outline, words = "") {
+  const scan = SCANS_ON ? scanFor(style, outline, words) : null
+  if (scan) return { name: scan, own: false, scan: true }
   const own = TEMPLATE_OF[style?.family]
   if (!own) return null
   if (!index?.[own] || !outline?.top?.length) return { name: own, own: true }
@@ -51,6 +53,43 @@ export function templateFor(style, outline, words = "") {
   }
   // (Only when the family's is clearly wrong: well off the photo's side, and another twice as close.)
   return mine > 0.08 && least < mine * 0.5 ? { name: best, own: false } : { name: own, own: true }
+}
+
+// A scanned shoe for the last (script/shoes/scan_templates.py: real shoes, each listed with the families it
+// stands for): of its family's, the one whose side is nearest the photo's, by the shoe's whole height along it
+// (in shoe lengths; a scan has no sole line to measure an upper from). Null for a family with none (sandals,
+// slides and heels for now: built open or carved as before), or before the list is in.
+const SCANS_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("scans") !== "off"
+const SCAN_FAMILIES = new Set(["runner", "chunky", "court", "hightop", "combat", "tall", "chelsea", "derby", "loafer", "flat"])
+// (A listing's words put a low hiker under "boots" and a leather sneaker under "court": a family also takes its
+// neighbours' scans, a little further off, so the photo's own height along the shoe picks between them.)
+const NEIGHBOURS = {
+  combat: ["tall", "chelsea", "derby", "hightop"], tall: ["combat", "chelsea"], chelsea: ["combat", "tall"], hightop: ["combat"],
+  runner: ["chunky", "court"], chunky: ["runner"], court: ["runner", "derby"], derby: ["court", "loafer", "combat"],
+  loafer: ["derby", "flat"], flat: ["loafer"]
+}
+const UNLACED = new Set(["loafer", "chelsea", "flat", "tall"])
+export function scanFor(style, outline, words = "") {
+  const family = style?.family
+  if (!index || !SCAN_FAMILIES.has(family) || !outline?.top?.length || !outline?.bottom?.length) return null
+  const across = (outline.right - outline.left) || 1
+  const seen = u => Math.max(0, lerp(outline.bottom, u) - lerp(outline.top, u)) * outline.aspect / across
+  const near = NEIGHBOURS[family] ?? []
+  const worded = /\blac(?:e|es|ed|ing)\b|eyelets?/i.test(words) && !/laceless|slip[- ]on/i.test(words)
+  const laced = worded || (!UNLACED.has(family) && style.laces !== false)
+  let best = null, least = Infinity
+  for (const [name, entry] of Object.entries(index)) {
+    if (!entry.scan) continue
+    const own = entry.families.includes(family)
+    if (!own && !entry.families.some(f => near.includes(f))) continue
+    const length = entry.box[1][2] - entry.box[0][2]
+    let d = 0, k = 0
+    for (let u = 0.04; u <= 0.96; u += 0.02, k++) d += Math.abs(seen(u) - (lerp(entry.profile.top, u) - lerp(entry.profile.bottom, u)) / length)
+    // (What it is before what it stands in for, its own family before a neighbour's, laced as the shoe is.)
+    const off = d / k + (entry.families[0] === family ? 0 : own ? 0.008 : 0.02) + (entry.laced === laced ? 0 : 0.03)
+    if (off < least) { best = name; least = off }
+  }
+  return best
 }
 
 // The upper's height over the sole along the photo's shoe, in shoe lengths (as lastFrame reads it).
@@ -126,7 +165,10 @@ export function readTemplate(buffer) {
       index[k++] = last
       acc = shift = 0
     }
-    return { ...head, positions, index }
+    // (A scanned shoe's shade a point, after its triangles' parts: see script/shoes/scan_templates.py.)
+    const shadeAt = at + head.indexBytes + triangles
+    const shade = head.shade && buffer.byteLength >= shadeAt + n ? new Uint8Array(buffer.slice(shadeAt, shadeAt + n)) : null
+    return { ...head, positions, index, shade }
   }
   const q = new Uint16Array(buffer.slice(at, at + 6 * n))
   at += 6 * n + ((6 * n) % 4 ? 2 : 0)
@@ -167,6 +209,7 @@ export function templateGeometry(body, frame, side, outline, views, style, templ
     }
   }
   const n = P.length / 3, out = new Float32Array(3 * n)
+  if (template.scan) return scanGeometry(f, template, side, style, views, { across, halfT, topT, bottomT, yTop })
   for (let i = 0; i < n; i++) {
     const x = P[3 * i], y = P[3 * i + 1], z = P[3 * i + 2]
     const u = Math.min(1, Math.max(0, along(z)))
@@ -196,6 +239,54 @@ export function templateGeometry(body, frame, side, outline, views, style, templ
   geometry.userData.photo = {
     floor, back, length: span, metres, top: u => yTop(Math.min(1, Math.max(0, u))), within, centreX, widest, open: false,
     hull: { last: style.family, template: template.name, views: (views ?? []).map(v => v.kind), fromAbove: Boolean(fromAbove), span: +span.toFixed(3) }
+  }
+  return geometry
+}
+
+// A scanned shoe on this foot: kept in its own shape (a real shoe's), its length the foot's with its toe room, its
+// width the last's at the ball, its height the photo's (one scale for the whole shoe: the middle of the photo's
+// height over the scan's along it, held within a quarter of the scale its length gives). A left shoe as scanned,
+// mirrored for the right foot. The photos are laid on it as on any template (userData.photo); aShade is its
+// own detail (seams, laces, eyelets, mesh), for the plain colour where the photos don't reach.
+function scanGeometry(f, template, side, style, views, { across, halfT, topT, bottomT, yTop }) {
+  const { s, floor, back, span, centreX, metres, yBottom, fromAbove } = f
+  const { positions: P, box } = template
+  const [lo, hi] = box
+  const lengthScale = span / (hi[2] - lo[2])
+  const ratios = []
+  for (let u = 0.06; u <= 0.94; u += 0.02) ratios.push((yTop(u) - yBottom(u)) / Math.max(1e-4, topT(u) - bottomT(u)))
+  ratios.sort((a, b) => a - b)
+  const up = Math.min(lengthScale * 1.25, Math.max(lengthScale * 0.8, ratios[ratios.length >> 1]))
+  const sign = side === "R" ? -1 : 1
+  const n = P.length / 3, out = new Float32Array(3 * n)
+  for (let i = 0; i < n; i++) {
+    out[3 * i] = centreX + sign * P[3 * i] * across
+    out[3 * i + 1] = floor + (P[3 * i + 1] - lo[1]) * up
+    out[3 * i + 2] = back + ((P[3 * i + 2] - lo[2]) / (hi[2] - lo[2])) * span
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.BufferAttribute(out, 3))
+  let index = template.index
+  if (sign < 0) {
+    // (Mirrored: its triangles wound the other way, so they still face out.)
+    index = new template.index.constructor(template.index.length)
+    for (let k = 0; k < index.length; k += 3) { index[k] = template.index[k]; index[k + 1] = template.index[k + 2]; index[k + 2] = template.index[k + 1] }
+  }
+  geometry.setIndex(new THREE.BufferAttribute(index, 1))
+  for (const [start, count, part] of template.groups) geometry.addGroup(start, count, part)
+  if (template.shade) geometry.setAttribute("aShade", new THREE.BufferAttribute(Float32Array.from(template.shade, v => Math.min(1.6, Math.max(0.35, v / 128))), 1))
+  geometry.computeVertexNormals()
+  const top = u => floor + (topT(Math.min(1, Math.max(0, u))) - lo[1]) * up
+  const half = u => halfT(u) * across
+  let widest = 0
+  for (let u = 0; u <= 1; u += 0.02) widest = Math.max(widest, half(u))
+  const within = (x, y, z) => {
+    const u = (z - back) / span
+    return u >= 0 && u <= 1 && y >= floor - 0.002 * s && y <= top(u) && Math.abs(x - centreX) <= half(u) * 1.05
+  }
+  geometry.userData.photo = {
+    floor, back, length: span, metres, top, within, centreX, widest, open: false,
+    hull: { last: style.family, template: template.name, scan: true, views: (views ?? []).map(v => v.kind), fromAbove: Boolean(fromAbove), span: +span.toFixed(3) }
   }
   return geometry
 }

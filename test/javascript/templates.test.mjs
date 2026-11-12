@@ -71,3 +71,31 @@ test("a template is chosen by the family, unless the photo's side is much more l
   assert.equal(templateFor({ family: "runner" }, null).name, "runner")
   assert.equal(templateFor({ family: "chunky" }, null).name, "chunky")
 })
+
+test("a scanned shoe is fitted in its own shape: the foot's length, the photo's height, mirrored for the right foot, with its shades", async () => {
+  const t = await openTemplate(bin("scan_boot_chukka"))
+  assert.equal(t.scan, true)
+  assert.equal(t.shade.length, t.count)
+  const { body, frame } = leg()
+  const style = { family: "combat", thick: 0.007, toe: 0.014 }
+  const f = lastFrame(body, frame, "L", side(), [], style)
+  const g = templateGeometry(body, frame, "L", side(), [], style, t)
+  const p = g.attributes.position.array
+  let zmin = Infinity, zmax = -Infinity, ymin = Infinity, ymax = -Infinity
+  for (let i = 0; i < p.length; i += 3) { zmin = Math.min(zmin, p[i + 2]); zmax = Math.max(zmax, p[i + 2]); ymin = Math.min(ymin, p[i + 1]); ymax = Math.max(ymax, p[i + 1]) }
+  assert.ok(Math.abs(zmin - f.back) < 1e-3 && Math.abs(zmax - (f.back + f.span)) < 1e-3, "heel to toe on the foot's reach")
+  assert.ok(Math.abs(ymin - frame.floor) < 1e-3, "on the floor")
+  // Its own proportions, within a quarter: not pulled to the photo's taller shaft.
+  const own = (t.box[1][1] - t.box[0][1]) / (t.box[1][2] - t.box[0][2]), shown = (ymax - ymin) / (zmax - zmin)
+  assert.ok(shown >= own * 0.79 && shown <= own * 1.26, `height over length ${shown.toFixed(3)}, the scan's ${own.toFixed(3)}`)
+  assert.equal(g.attributes.aShade.count, t.count)
+  assert.equal(g.userData.photo.hull.scan, true)
+  // The right foot's: the same shoe mirrored across the foot, its triangles rewound.
+  const r = templateGeometry(body, frame, "R", side(), [], style, t)
+  const fr = lastFrame(body, frame, "R", side(), [], style)
+  if (fr) {
+    const q = r.attributes.position.array
+    assert.ok(Math.abs((q[0] - fr.centreX) + (p[0] - f.centreX)) < 1e-6)
+    assert.equal(r.index.array[1], g.index.array[2])
+  }
+})
