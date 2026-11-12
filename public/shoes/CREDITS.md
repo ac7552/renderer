@@ -41,6 +41,7 @@ textures reduced to a shade a point (`script/shoes/scan_templates.py`).
 | scan_loafer_boat.bin | Mens_Authentic_Original_Boat_Shoe_in_Navy_Leather_NHHQddDLQys |
 | scan_loafer_slipon.bin | Mens_Billfish_Slip_On_in_Coffee_e8bPKE9Lfgo |
 | scan_flat_ballet.bin | Cream_Tieks_Italian_Leather_Ballet_Flats |
-| scan_flat_ballet_cap.bin | Tory_Burch_Kaitlin_Ballet_Mestico_in_BlackGold |
+| scan_pump_high.bin | Chelsea_BlkHeelPMP_DwxLtZNxLZZ |
+| scan_pump_low.bin | Chelsea_lo_fl_rdheel_nQ0LPNF1oMw |
 | scan_loafer_moc.bin | Santa_Cruz_Mens |
 | scan_boot_bow.bin | UGG_Bailey_Bow_Womens_Clogs_Black_7 |

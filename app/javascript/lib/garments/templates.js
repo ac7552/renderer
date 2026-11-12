@@ -10,6 +10,7 @@
 // onto the last's at the ball (the photo from above when the shop has one).
 import * as THREE from "three"
 import { lastFrame } from "lib/garments/last_shape"
+import { closedFore } from "lib/garments/open_shape"
 
 // The template each family is fitted from.
 const TEMPLATE_OF = { combat: "workboot", tall: "workboot", court: "court", chunky: "chunky", runner: "runner", hightop: "hightop", chelsea: "chelsea", derby: "derby", loafer: "loafer", flat: "flat" }
@@ -56,40 +57,70 @@ export function templateFor(style, outline, words = "") {
 }
 
 // A scanned shoe for the last (script/shoes/scan_templates.py: real shoes, each listed with the families it
-// stands for): of its family's, the one whose side is nearest the photo's, by the shoe's whole height along it
-// (in shoe lengths; a scan has no sole line to measure an upper from). Null for a family with none (sandals,
-// slides and heels for now: built open or carved as before), or before the list is in.
+// stands for): of its family's, the one whose side is nearest the photo's (in shoe lengths; a scan has no sole
+// line to measure an upper from). Null for an open shoe (see below), or before the list is in.
 const SCANS_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("scans") !== "off"
-const SCAN_FAMILIES = new Set(["runner", "chunky", "court", "hightop", "combat", "tall", "chelsea", "derby", "loafer", "flat"])
+const SCAN_FAMILIES = new Set(["runner", "chunky", "court", "hightop", "combat", "tall", "chelsea", "derby", "loafer", "flat", "pump", "sandal", "slide"])
 // (A listing's words put a low hiker under "boots" and a leather sneaker under "court": a family also takes its
 // neighbours' scans, a little further off, so the photo's own height along the shoe picks between them.)
 const NEIGHBOURS = {
   combat: ["tall", "chelsea", "derby", "hightop"], tall: ["combat", "chelsea"], chelsea: ["combat", "tall"], hightop: ["combat"],
   runner: ["chunky", "court"], chunky: ["runner"], court: ["runner", "derby"], derby: ["court", "loafer", "combat"],
-  loafer: ["derby", "flat"], flat: ["loafer"]
+  loafer: ["derby", "flat"], flat: ["loafer", "pump"], pump: ["flat", "chelsea"], sandal: ["slide"], slide: ["sandal"]
 }
+// A sandal's or a slide's family closed over the toes in its photo (a sneaker mule, a clog, a fisherman sandal):
+// the closed shoes it's nearest, not a footbed and a strap.
+const CLOSED_TOE = ["runner", "court", "loafer", "flat", "derby"]
+// A heel: the sole under the arch this far off the floor (of the shoe's length); and how near a heeled scan's
+// side must be to the photo's (the mean difference along the shoe, of its length) to stand for it.
+// (A scan's own: the heeled ones stand 0.14 and up, a lug sole's step under the arch 0.06 at most.)
+const HEEL_ARCH = 0.045, SCAN_HEEL = 0.1, HEEL_NEAR = 0.16
 const UNLACED = new Set(["loafer", "chelsea", "flat", "tall"])
 export function scanFor(style, outline, words = "") {
   const family = style?.family
+  if (!SCANS_ON) return null
   if (!index || !SCAN_FAMILIES.has(family) || !outline?.top?.length || !outline?.bottom?.length) return null
   const across = (outline.right - outline.left) || 1
   const seen = u => Math.max(0, lerp(outline.bottom, u) - lerp(outline.top, u)) * outline.aspect / across
-  const near = NEIGHBOURS[family] ?? []
+  const floorLine = Math.max(...outline.bottom)
+  const lifted = u => Math.max(0, floorLine - lerp(outline.bottom, u)) * outline.aspect / across
+  // (Closed over the toes: the photo's shoe stands at least 0.42 of its tallest there, open_shape.js's test.)
+  const openFamily = family === "sandal" || family === "slide"
+  const closedToe = openFamily && closedFore(u => -lerp(outline.top, u), u => -lerp(outline.bottom, u)) >= 0.42
+  // An open one (a sandal's straps, a slide's band, a strappy or a thong heel) is built on the foot from its
+  // photo as before (open_shape.js): a scan's straps lie as they did on the scanner, not on this foot.
+  // (A mule or a slingback too, open behind: the scans are closed round the heel.)
+  if (openFamily ? !closedToe : family === "pump" && ((outline.openShare ?? 0) > 0.1 || /\bmules?\b|sling[- ]?back|\bthong|sandal|slipper/i.test(words))) return null
+  // A heel in the photo (its sole well off the floor under the arch) is only ever fitted from a heeled scan, and
+  // only one about as tall: a stiletto boot to the knee on a flat sheepskin boot lost its heel and its toe.
+  // (Its highest between the heel's breast and the ball: a pump's sole comes down to the floor by the middle.)
+  const archOf = at => { let most = 0; for (let u = 0.2; u <= 0.45; u += 0.01) most = Math.max(most, at(u)); return most }
+  const heeled = archOf(lifted) > HEEL_ARCH
+  const near = closedToe ? CLOSED_TOE : NEIGHBOURS[family] ?? []
   const worded = /\blac(?:e|es|ed|ing)\b|eyelets?/i.test(words) && !/laceless|slip[- ]on/i.test(words)
-  const laced = worded || (!UNLACED.has(family) && style.laces !== false)
+  const laced = worded || (!UNLACED.has(family) && !openFamily && family !== "pump" && style.laces !== false)
   let best = null, least = Infinity
   for (const [name, entry] of Object.entries(index)) {
     if (!entry.scan) continue
-    const own = entry.families.includes(family)
+    const own = !closedToe && entry.families.includes(family)
     if (!own && !entry.families.some(f => near.includes(f))) continue
     const length = entry.box[1][2] - entry.box[0][2]
+    if (heeled !== archOf(u => (lerp(entry.profile.bottom, u) - entry.box[0][1]) / length) > SCAN_HEEL) continue
     let d = 0, k = 0
-    for (let u = 0.04; u <= 0.96; u += 0.02, k++) d += Math.abs(seen(u) - (lerp(entry.profile.top, u) - lerp(entry.profile.bottom, u)) / length)
+    // (How high its top stands off the floor along the shoe, and how far its sole does under the arch: a
+    // heel's. Not its height from its own sole at the heel: a stiletto's stem is too thin for the photo's
+    // outline, which ends above it, and the pump read as a low-heeled one.)
+    for (let u = 0.04; u <= 0.96; u += 0.02, k++) {
+      d += Math.abs(seen(u) + lifted(u) - (lerp(entry.profile.top, u) - entry.box[0][1]) / length)
+      if (u >= 0.25 && u <= 0.6) d += Math.abs(lifted(u) - (lerp(entry.profile.bottom, u) - entry.box[0][1]) / length)
+    }
     // (What it is before what it stands in for, its own family before a neighbour's, laced as the shoe is.)
+    // (Never a laced one for a shoe with no laces: a knit sock shoe on a chukka wore its laces.)
+    if (entry.laced && !laced) continue
     const off = d / k + (entry.families[0] === family ? 0 : own ? 0.008 : 0.02) + (entry.laced === laced ? 0 : 0.03)
     if (off < least) { best = name; least = off }
   }
-  return best
+  return heeled && least > HEEL_NEAR ? null : best
 }
 
 // The upper's height over the sole along the photo's shoe, in shoe lengths (as lastFrame reads it).

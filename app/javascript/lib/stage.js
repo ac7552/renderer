@@ -22,7 +22,7 @@ import { lastFor, shaftShare } from "lib/garments/lasts"
 import { hullGeometry } from "lib/garments/hull"
 import { OPEN_SHAPED, openGeometry } from "lib/garments/open_shape"
 import { lastGeometry, onLast } from "lib/garments/last_shape"
-import { loadTemplate, templateFor, templateGeometry, templateNow, templatesIndexed } from "lib/garments/templates"
+import { loadTemplate, scanFor, templateFor, templateGeometry, templateNow, templatesIndexed } from "lib/garments/templates"
 import { fitPose, projectAngled, readAngled } from "lib/garments/angled"
 import { BLANK_TEXTURE, PROJECTION, projectionUniforms, withProjection } from "lib/garments/fabric"
 import { meanRatio } from "lib/projection"
@@ -576,7 +576,9 @@ export class FittingStage {
     // sole's edge, collar, tongue, laces and seams. While the template is on its way the shoe is built on a last
     // for now, not painted, and built again when it comes.
     const onTheLast = Boolean(photoShaped && onLast(last, shoes.shoeSide))
-    const chosen = onTheLast ? templateFor(last, shoes.shoeSide, shoes.words ?? shoes.name ?? "") : null
+    // (A heel, a sandal or a slide, not built on a last: from a scanned one when there is one, templates.js's scanFor.)
+    const scanned = photoShaped && !onTheLast ? scanFor(last, shoes.shoeSide, shoes.words ?? shoes.name ?? "") : null
+    const chosen = onTheLast ? templateFor(last, shoes.shoeSide, shoes.words ?? shoes.name ?? "") : scanned ? { name: scanned, own: false, scan: true } : null
     const templateName = chosen?.name ?? null
     const template = templateName ? templateNow(templateName) : null
     // (A template chosen over the family's by the photo's outline keeps its own lacing, not the words'.)

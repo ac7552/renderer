@@ -62,12 +62,13 @@ SCANS = {
     "Mens_Authentic_Original_Boat_Shoe_in_Navy_Leather_NHHQddDLQys": ("loafer_boat", ["loafer"], True),
     "Mens_Billfish_Slip_On_in_Coffee_e8bPKE9Lfgo": ("loafer_slipon", ["loafer", "court"], False),
     "Cream_Tieks_Italian_Leather_Ballet_Flats": ("flat_ballet", ["flat"], False),
-    "Tory_Burch_Kaitlin_Ballet_Mestico_in_BlackGold": ("flat_ballet_cap", ["flat"], False),
+    "Chelsea_BlkHeelPMP_DwxLtZNxLZZ": ("pump_high", ["pump"], False),
+    "Chelsea_lo_fl_rdheel_nQ0LPNF1oMw": ("pump_low", ["pump", "flat"], False),
     "Santa_Cruz_Mens": ("loafer_moc", ["loafer"], False),
     "UGG_Bailey_Bow_Womens_Clogs_Black_7": ("boot_bow", ["tall", "chelsea"], False),
 }
-# (Heels, sandals and slides aren't fitted from scans yet: a heel pitches the foot, and an open shoe's straps have
-# to lie on the foot itself. The dataset has them: Chelsea_BlkHeelPMP, NAPA_VALLEY_NAVAJO_SANDAL, adiZero_Slide_2.)
+# (No sandals or slides: an open shoe's straps have to lie on the foot itself, and the page builds those from the
+# photo, open_shape.js. The dataset has a few: NAPA_VALLEY_NAVAJO_SANDAL, adiZero_Slide_2_SC, the Santa Cruz thongs.)
 # Scans whose heel and toe the guess below gets the wrong way round (seen on the sheet).
 TURN = set()
 
