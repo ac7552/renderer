@@ -626,7 +626,7 @@ export class FittingStage {
           || (onTheLast && lastGeometry(body, frame, side, shoes.shoeSide, views, last))
           // A sandal or a slide whose side photo shows its openings: a footbed and straps hugging the foot
           // (open_shape.js), not a carved block.
-          || (openShoe && openGeometry(body, frame, side, shoes.shoeSide, views, last, { said: saidOpen }))
+          || (openShoe && openGeometry(body, frame, side, shoes.shoeSide, views, last, { said: saidOpen || (shoes.shoeSide.openShare ?? 0) > 0.25 }))
           || (photoShaped && hullGeometry(body, frame, side, shoes.shoeSide, views, last, { depth: shoes.shoeDepth ?? null }))
           || (photoShaped && photoShoeGeometry(body, frame, side, shoes.shoeSide, last, { laces: relief })) || shoeGeometry(body, frame, side, last)
         this.feet.shoes[side] = hang(new THREE.Mesh(geometry, [sole, upper, laces, collar, eyelets]), side, heeled)
@@ -684,7 +684,7 @@ export class FittingStage {
           // (And under its topline wherever its side photo shows the shoe, not the backdrop: a pump's closed toe
           // hides the mannequin's rigid toes even where they stand out of the carved toe box.)
           const uc = Math.min(1, Math.max(0, u))
-          let hidden = p.open ? p.within(x, y, z) || p.within(x, y - 0.006 * s, z) || (y <= p.top(uc) && p.shoeAt?.(uc, y) === true) || y <= frame.floor + 0.004 * s : y <= p.top(uc)
+          let hidden = p.open ? p.covers?.(x, y, z) || p.within(x, y, z) || p.within(x, y - 0.006 * s, z) || (y <= p.top(uc) && p.shoeAt?.(uc, y) === true) || y <= frame.floor + 0.004 * s : y <= p.top(uc)
           if (!hidden && !p.open && u > 0.6) for (let d = 0.004 * s; !hidden && d <= 0.03 * s; d += 0.004 * s) hidden = p.within(x, y - d, z)
           if (hidden) { cover[i] = 1; break }
         }

@@ -12,7 +12,6 @@
 // coverFeet: shoeAt).
 import * as THREE from "three"
 import { legSlices } from "lib/garments/accessories"
-import { hullGeometry } from "lib/garments/hull"
 import { lastFrame } from "lib/garments/last_shape"
 
 // The families built this way (lasts.js's), when the side photo shows openings (shoeSide's open mask).
@@ -110,29 +109,52 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
     const w = Math.min(1, Math.max(0, (line - own - 0.005 * s) / (0.01 * s)))
     return own + (line - own) * w
   }
-  const bedBottom = u => (heeled ? Math.max(under(inEnds(u)), u > 0.55 ? ySole(inEnds(u)) - thickest : -Infinity) : yBottom(inEnds(u)))
-  const bedTop = u => {
+  // The photo's own footbed (where its straps are read from): its sole's top; on a heel the seat's thickness over
+  // its underside, eased to the sole's top at the ball.
+  const photoBed = u => {
     if (!heeled) return ySole(inEnds(u))
     const v = inEnds(u), w = Math.min(1, Math.max(0, (v - 0.5) / 0.15))
     return (under(v) + seat) * (1 - w) + Math.max(ySole(v), under(v) + 0.004 * s) * w
   }
-  // (Only a heel has a stem under its footbed: a flat sandal's thick heel is its sole.)
-  let stemmed = false
-  if (heeled) for (let u = 0; u <= 0.4; u += 0.02) if (bedBottom(u) > yBottom(u) + 0.01 * s) stemmed = true
+  // A heel's footbed is built under the mannequin's foot as it stands pitched, not where the photo's stands: the
+  // foot's own underside along the shoe (the lowest of the skin at each point along), no lower than the forepart's
+  // sole. The photo's heel can be higher than the foot is pitched, and a footbed at the photo's height stood
+  // clear of the foot, behind and above its heel.
+  const BINS = 100, lowest = new Float32Array(BINS).fill(Infinity)
+  if (heeled) {
+    for (let i = 0; i < body.positions.length / 3; i++) {
+      const x = body.positions[3 * i], y = body.positions[3 * i + 1], u = (body.positions[3 * i + 2] - back) / span
+      if ((side === "L") !== x > 0 || y > floor + 0.2 * s || u < 0 || u >= 1 || Math.abs(x - centreX) > 0.07 * s) continue
+      const k = Math.floor(u * BINS)
+      lowest[k] = Math.min(lowest[k], y)
+    }
+    for (let k = 1; k < BINS; k++) if (!Number.isFinite(lowest[k])) lowest[k] = lowest[k - 1]
+    for (let k = BINS - 2; k >= 0; k--) if (!Number.isFinite(lowest[k])) lowest[k] = lowest[k + 1]
+    // (The lowest over a few points along: a point with few of the skin's corners in it reads high.)
+    const raw = Float32Array.from(lowest)
+    for (let k = 0; k < BINS; k++) for (let d = -3; d <= 3; d++) if (k + d >= 4 && k + d < BINS) lowest[k] = Math.min(lowest[k], raw[k + d])
+  }
+  const footUnder = u => {
+    let sum = 0, n = 0
+    for (let k = Math.floor(u * BINS) - 7; k <= Math.floor(u * BINS) + 7; k++) if (k >= 5 && k < BINS && Number.isFinite(lowest[k])) { sum += lowest[k]; n++ }
+    return n ? sum / n : floor
+  }
+  const foreSole = Math.min(0.03 * s, Math.max(0.006 * s, fore / foreN))
+  const bedTop = u => (heeled ? Math.max(floor + foreSole, footUnder(inEnds(u))) : ySole(inEnds(u)))
+  // (Only a heel has a stem under its footbed: where the photo's underside stands on the floor, well under the
+  // bridge. A wedge or a platform has none: its footbed is solid to the floor.)
+  let stemFrom = null, stemTo = null
+  if (heeled) for (let u = 0.03; u <= 0.5; u += 0.01) if (bridge(u) - yBottom(u) > 0.015 * s) { stemFrom ??= u; stemTo = u }
+  const stemmed = stemFrom != null
+  const bedBottom = u => (heeled ? (stemmed ? Math.max(floor, bedTop(u) - Math.max(seat, foreSole)) : floor) : yBottom(inEnds(u)))
   const positions = [], soleIndex = [], strapIndex = [], painted = []
   slab(positions, soleIndex, { back, span, centreX, halfAt: u => halfAt(u) * 1.04 + 0.002 * s, bottom: bedBottom, top: bedTop, bevel: 0.0025 * s })
   // (Wound outward: a closed slab wound the other way has a negative volume.)
   if (volume(positions, soleIndex) < 0) for (let t = 0; t < soleIndex.length; t += 3) { const b = soleIndex[t + 1]; soleIndex[t + 1] = soleIndex[t + 2]; soleIndex[t + 2] = b }
   // --- The stem (a heel's, a wedge's): the photo's shoe below the footbed, carved as hull.js carves it.
   if (stemmed) {
-    // (A heel's stem turned from the photo's profile, stemRings; a wedge, as long as the shoe, carved.)
-    const turned = stemRings(positions, soleIndex, { maskAt, bedBottom, floor, back, span, centreX, halfAt, s })
-    const stem = turned ? null : hullGeometry(body, frame, side, outline, views, style, { only: (u, y) => y < bedBottom(u) + 0.002 * s })
-    if (stem) {
-      const p = stem.attributes.position.array, base = positions.length / 3
-      for (let i = 0; i < p.length; i++) positions.push(p[i])
-      for (const i of stem.index.array) soleIndex.push(base + i)
-    }
+    const mid = (stemFrom + stemTo) / 2
+    stemRings(positions, soleIndex, { maskAt, under, floor, back, span, centreX, halfAt, s, mid, reach: bedBottom(mid) + 0.004 * s })
   }
   // --- The straps: the skin's slices, offset out along the surface's normal, kept where the photo shows shoe.
   const top = floor + Math.min(0.32 * s, Math.max(...Array.from({ length: 21 }, (_, k) => yTop(k / 20))) - floor + 0.02 * s)
@@ -154,7 +176,7 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
   // A thong's strap (a flip-flop's): from the photo's side only a band rising from the sole to the toe post, but
   // over the foot a V, from the post between the toes back and out to the sole's edges. The band's front (the
   // post) and back (where it meets the sole) read from the photo; a point is strap only near the V there.
-  const thong = style.thong ? thongPlan(maskAt, bedTop, s) : null
+  const thong = style.thong ? thongPlan(maskAt, photoBed, s) : null
   openReading.thong = thong
   const onThong = (x, u) => {
     if (!thong) return 1
@@ -168,7 +190,7 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
   // to the foot's top, there) against the photo's shoe (the footbed to its top, there): a slide's band covers the
   // foot from its front edge to its back, whatever the instep's height. Round the leg a point is read at its own
   // height, and a strap the photo shows at the ankle's height anywhere behind the instep goes all the way round.
-  const BINS = 100, skinTop = new Float32Array(BINS).fill(-Infinity), ceiling = floor + (rows - 1) * slices.step
+  const skinTop = new Float32Array(BINS).fill(-Infinity), ceiling = floor + (rows - 1) * slices.step
   for (let i = 0; i < rows * around; i++) {
     const u = (skin[3 * i + 2] - back) / span
     if (u < 0 || u >= 1) continue
@@ -179,7 +201,7 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
   for (let b = 0; b < BINS; b++) if (skinTop[b] >= ceiling - 0.006 * s) leg = (b + 1) / BINS
   const squeeze = new Float32Array(BINS).fill(1)
   for (let b = 0; b < BINS; b++) {
-    const u = (b + 0.5) / BINS, bed = bedTop(u), shown = yTop(u) - bed, foot = skinTop[b] - bed
+    const u = (b + 0.5) / BINS, shown = yTop(u) - photoBed(u), foot = skinTop[b] - bedTop(u)
     // (Not where the photo's shoe stands far over the foot: an ankle strap, in the air ahead of the leg.)
     if (shown > 0.02 * s && foot > 0.01 * s && shown < foot * 1.6 && u > leg) squeeze[b] = Math.max(0.35, shown / foot)
   }
@@ -190,17 +212,24 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
     return 1 + ((n ? sum / n : 1) - 1) * w * w * (3 - 2 * w)
   }
   // (The photo's strap at each height behind the instep: how much, and where along.)
+  // (Read on the photo as far over its footbed as the row is over the built one, at the heel.)
+  const lift = photoBed(0.15) - bedTop(0.15)
   const ring = new Float32Array(rows), ringAt = new Float32Array(rows)
   for (let k = 0; k < rows; k++) {
-    const y = floor + k * slices.step
-    // (A strap running along, a tenth of the shoe's length or more: one standing up from the heel is no ring.)
-    let best = 0, bestAt = 0, run = 0
-    for (let u = 0; u <= 0.5; u += 0.01) { const m = y - bedTop(u) > 0.08 * s ? maskAt(u, y) : 0; if (m > 0.5) run++; if (m > best) { best = m; bestAt = u } }
-    if (run >= 16) { ring[k] = best; ringAt[k] = bestAt }
+    const y = floor + k * slices.step + lift
+    // (A strap running along, an eighth of the shoe's length or more in one piece: one standing up from the heel,
+    // or two crossing, is no ring.)
+    let best = 0, bestAt = 0, run = 0, longest = 0
+    for (let u = 0; u <= 0.5; u += 0.01) {
+      const m = y - photoBed(u) > 0.08 * s ? maskAt(u, y) : 0
+      run = m > 0.5 ? run + 1 : 0
+      if (run > longest) { longest = run; best = m; bestAt = u - 0.01 * Math.floor(run / 2) }
+    }
+    if (longest >= 13) { ring[k] = Math.max(0.6, best); ringAt[k] = bestAt }
   }
   // The strap in the photo's column nearest a height (a thong's arm, whose V over the foot the side doesn't show).
   const strapNear = (u, y) => {
-    for (let d = 0; d <= 0.04 * s; d += 0.0015 * s) for (const q of [y + d, y - d]) if (q > bedTop(u) && maskAt(u, q) > 0.5) return q
+    for (let d = 0; d <= 0.04 * s; d += 0.0015 * s) for (const q of [y + d, y - d]) if (q > photoBed(u) && maskAt(u, q) > 0.5) return q
     return y
   }
   const value = new Float32Array(rows * around), seen = new Float32Array(rows * around * 3)
@@ -208,15 +237,24 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
     const i = k * around + j, o = 3 * i, y = skin[o + 1], u = (skin[o + 2] - back) / span
     seen[o] = u; seen[o + 1] = y
     if (u < 0 || u > 1) continue
-    const bed = bedTop(u), above = (y - bed + 0.002 * s) / (0.004 * s)
+    const bed = bedTop(u), seen0 = photoBed(u), above = (y - bed + 0.002 * s) / (0.004 * s)
     // (The photo's shoe a little over the footbed's top is its insole and seat, not a strap.)
-    if (above <= 0 || yTop(u) - bed < 0.012 * s) continue
-    let read = bed + (y - bed) * squeezeAt(u), along = u
+    if (above <= 0 || yTop(u) - seen0 < 0.012 * s) continue
+    let read = seen0 + (y - bed) * squeezeAt(u), along = u
     // (A thin strap keeps a few millimetres' width: read a little up and down too.)
     let m = Math.max(maskAt(u, read), 0.85 * maskAt(u, read + 0.002 * s), 0.85 * maskAt(u, read - 0.002 * s))
-    if (u < leg + 0.05 && ring[k] > m) { m = ring[k]; along = ringAt[k]; read = y }
+    if (u < leg + 0.05 && ring[k] > m) { m = ring[k]; along = ringAt[k]; read = y + lift }
     const on = onThong(skin[o], u)
-    if (thong && on > 0) read = strapNear(u, read)
+    // (A thong's V is painted from the middle of the photo's arm.)
+    if (thong && on > 0) {
+      along = (thong.front + thong.back) / 2
+      // (The arm's own middle there: down from the photo's top through its topmost run of shoe.)
+      let from = yTop(along) - 0.001 * s
+      while (from > photoBed(along) && maskAt(along, from) <= 0.5) from -= 0.001 * s
+      let to = from
+      while (to > photoBed(along) && maskAt(along, to) > 0.5) to -= 0.001 * s
+      read = (from + to) / 2
+    }
     seen[o] = along; seen[o + 1] = read
     value[i] = m * Math.min(1, above) * on
   }
@@ -265,6 +303,18 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
   }
   geometry.userData.photoUV = photoUV
   const shoeAt = () => false
+  // The skin under a strap, well inside its edges, isn't drawn (stage.js's coverFeet): the mannequin's toes and
+  // ankle bone stand proud of the smooth slices the band is built on.
+  const covers = (x, y, z) => {
+    const k = Math.round((y - floor) / slices.step)
+    if (k < 0 || k >= rows) return false
+    const c = slices.centres[k], j = ((Math.round((Math.atan2(x - c[0], z - c[1]) / (2 * Math.PI)) * around) % around) + around) % around
+    for (const dj of [-2, 0, 2]) for (const dk of [-1, 0, 1]) {
+      const kk = k + dk
+      if (kk < 0 || kk >= rows || value[kk * around + ((j + dj + around) % around)] < 0.9) return false
+    }
+    return true
+  }
   let widest = 0
   for (let u = 0; u <= 1; u += 0.02) widest = Math.max(widest, halfAt(u) * 1.04 + 0.002 * s)
   const within = (x, y, z) => {
@@ -273,8 +323,8 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
     return (y >= bedBottom(u) - 0.002 * s && y <= bedTop(u) && Math.abs(x - centreX) <= halfAt(u) * 1.04) || (y > bedTop(u) && shoeAt(u, y))
   }
   geometry.userData.photo = {
-    floor, back, length: span, metres, top: u => yTop(Math.min(1, Math.max(0, u))), within, centreX, widest, open: true, shoeAt,
-    hull: { open: style.family, stem: stemmed, straps: strapIndex.length / 3, span: +span.toFixed(3) }
+    floor, back, length: span, metres, top: u => yTop(Math.min(1, Math.max(0, u))), within, centreX, widest, open: true, shoeAt, covers,
+    hull: { open: style.family, stem: stemmed, heeled, straps: strapIndex.length / 3, span: +span.toFixed(3), profile: Array.from({ length: 20 }, (_, k) => { const u = 0.02 + k * 0.05; return [+u.toFixed(2), ...[yBottom(u), heeled ? bridge(u) : 0, bedBottom(u), bedTop(u), photoBed(u), yTop(u)].map(v => Math.round((v - floor) * 1000))] }) }
   }
   return geometry
 }
@@ -424,41 +474,61 @@ function volume(p, index) {
   return v / 6
 }
 
-// A heel's stem, turned from the photo's profile: at each height under the footbed, the photo's shoe from its back
-// edge to its front, a rounded section as deep as that and about as wide (a stiletto's is round, a block's nearly
-// as wide as the heel's seat), capped underneath. false for a wedge (as long as the shoe: carved instead) or when
-// the photo shows no stem.
-function stemRings(positions, index, { maskAt, bedBottom, floor, back, span, centreX, halfAt, s }) {
-  const ROUND = 20, rings = []
+// A heel's stem, turned from the photo's profile: at each height under the photo's footbed, the photo's shoe from
+// its back edge to its front, a rounded section as deep as that and about as wide (a stiletto's is round, a
+// block's nearly as wide as the heel's seat), capped underneath. Its heights are scaled so its top meets the
+// footbed as built (reach), which follows the foot. When the photo shows no clear stem (a shadow, a stem a pixel
+// wide), a plain tapered one.
+function stemRings(positions, index, { maskAt, under, floor, back, span, centreX, halfAt, s, mid, reach }) {
+  const ROUND = 20
+  let rings = []
+  const height = under(mid) - floor
   for (let y = floor + 0.0005 * s; y < floor + 0.16 * s; y += 0.003 * s) {
     let from = null, to = null
     for (let u = 0; u <= 0.6; u += 0.004) {
-      const on = y < bedBottom(u) - 0.003 * s && maskAt(u, y) > 0.5
+      const on = y < under(u) - 0.003 * s && maskAt(u, y) > 0.5
       if (on) { from ??= u; to = u } else if (from != null) break
     }
     if (from == null) { if (rings.length) break; continue }
-    if (to - from > 0.4) { if (rings.length < 3) return false; break }
+    if (to - from > 0.4) { rings = rings.length < 3 ? [] : rings; break }
     rings.push({ y, from, to })
   }
-  if (rings.length < 3) return false
+  if (rings.length < 3 || height < 0.01 * s) {
+    rings = []
+    for (let k = 0; k <= 10; k++) { const t = k / 10, half = (0.012 + 0.03 * t * t * t) / 2; rings.push({ y: floor + t * Math.max(0.01 * s, height), from: mid - half, to: mid + half }) }
+  }
+  const scale = (reach - floor) / Math.max(0.005 * s, rings[rings.length - 1].y - floor)
   const base = positions.length / 3
   // (Each ring's ends eased over its neighbours': the photo's edge steps a pixel at a time.)
   const eased = rings.map((r, k) => {
     const near = rings.slice(Math.max(0, k - 1), k + 2)
-    return { y: r.y, from: near.reduce((a, q) => a + q.from, 0) / near.length, to: near.reduce((a, q) => a + q.to, 0) / near.length }
+    return { y: floor + (r.y - floor) * scale, from: near.reduce((a, q) => a + q.from, 0) / near.length, to: near.reduce((a, q) => a + q.to, 0) / near.length }
   })
+  // Its middle on one straight line from its tip to its top (no more than 3% of the shoe's length off the tip's),
+  // and no thinner going up: read row by row from a small photo the stem zigzagged.
+  {
+    const mids = eased.map(r => (r.from + r.to) / 2), n = eased.length
+    const tip = mids.slice(0, Math.max(1, Math.round(n / 4))).reduce((a, b) => a + b, 0) / Math.max(1, Math.round(n / 4))
+    const upper = mids.slice(Math.floor(n * 0.6)), head = Math.min(tip + 0.03, Math.max(tip - 0.03, upper.reduce((a, b) => a + b, 0) / upper.length))
+    let deep = 0
+    eased.forEach((r, k) => {
+      deep = Math.max(deep, Math.min(0.09, r.to - r.from))
+      const at = tip + (head - tip) * (k / Math.max(1, n - 1))
+      r.from = at - deep / 2; r.to = at + deep / 2
+    })
+  }
   // (Carried up into the footbed, so no gap shows under it.)
   const last = eased[eased.length - 1]
   eased.push({ y: last.y + 0.006 * s, from: last.from, to: last.to })
   for (const r of eased) {
-    const mid = (r.from + r.to) / 2, deep = Math.max(0.003 * s, ((r.to - r.from) / 2) * span)
-    const wide = Math.min(halfAt(Math.max(0.05, mid)) * 0.92, Math.max(0.0035 * s, deep * 1.1))
+    const at = (r.from + r.to) / 2, deep = Math.max(0.003 * s, ((r.to - r.from) / 2) * span)
+    const wide = Math.min(halfAt(Math.max(0.05, at)) * 0.92, Math.max(0.0035 * s, deep * 1.1))
     // (A block's corners squarer than a stiletto's round.)
     const power = deep > 0.012 * s ? 3.5 : 2
     for (let j = 0; j < ROUND; j++) {
       const a = (j / ROUND) * 2 * Math.PI, c = Math.cos(a), d = Math.sin(a)
       const r2 = 1 / Math.pow(Math.pow(Math.abs(c), power) + Math.pow(Math.abs(d), power), 1 / power)
-      positions.push(centreX + wide * r2 * d, r.y, back + mid * span + deep * r2 * c)
+      positions.push(centreX + wide * r2 * d, r.y, back + at * span + deep * r2 * c)
     }
   }
   const id = (k, j) => base + k * ROUND + ((j + ROUND) % ROUND)

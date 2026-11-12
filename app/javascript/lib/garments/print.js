@@ -1907,6 +1907,24 @@ export function shoeSide(data, w, h, { model = null } = {}) {
       if (kept > cut.garment.count * 0.5) mask.set(cleaned)
     }
   }
+  // (Found on the shoe with its openings out: in the whole mask the backdrop under the arch, shut in by the
+  // shadow, counts as shoe.)
+  if (open) floorShadow(open, lab, bg, far, w, h, mask)
+  // With the model's outline, what it takes for shoe stays shoe above; but it takes the backdrop seen between a
+  // sandal's straps for shoe too, and the straps were then built as one sheet over the foot, painted the
+  // backdrop's white. A shoe whose own colour is well off the backdrop's has no panels of the backdrop's colour:
+  // its bigger backdrop-coloured pieces (not a highlight's few pixels) are openings whatever the model says.
+  // (Or, on a shoe already known for open, a little darker than the backdrop: the backdrop in the shade under a
+  // strap.)
+  if (open && (cut.model || openShare > 0.1) && !(Math.abs(mid[0] - bg[0]) <= far[0] * 2.5 && Math.hypot(mid[1] - bg[1], mid[2] - bg[2]) <= far[1] * 2.5)) {
+    const shade = openShare > 0.1 ? 16 : 0, wide = openShare > 0.1 ? 2 : 1
+    const through = new Uint8Array(w * h)
+    for (let i = 0; i < w * h; i++) {
+      const dl = bg[0] - lab[3 * i]
+      through[i] = open[i] && dl <= Math.max(far[0], shade) && dl >= -far[0] && Math.hypot(lab[3 * i + 1] - bg[1], lab[3 * i + 2] - bg[2]) <= far[1] * wide ? 1 : 0
+    }
+    for (const piece of pieces(through, w, h)) if (piece.length >= Math.max(30, cut.garment.count * 0.01)) for (const i of piece) open[i] = 0
+  }
   let left = w, right = -1
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (mask[y * w + x]) { left = Math.min(left, x); right = Math.max(right, x) }
   if (right - left < w * 0.15) return null
@@ -1935,7 +1953,9 @@ export function shoeSide(data, w, h, { model = null } = {}) {
   // The toe is the low end: a shoe stands taller at the heel.
   const quarter = Math.round(SIDE_BINS / 4)
   const tall = (from, to) => { let sum = 0; for (let b = from; b < to; b++) sum += bottom[b] - top[b]; return sum / (to - from) }
-  const toeRight = tall(SIDE_BINS - quarter, SIDE_BINS) < tall(0, quarter)
+  // (Over the floor, not over its own underside: a heel's back stands in the air on its stem, thinner than a toe.)
+  const stands = (from, to) => { let sum = 0; for (let b = from; b < to; b++) sum += low + 1 - top[b]; return sum / (to - from) }
+  const toeRight = stands(SIDE_BINS - quarter, SIDE_BINS) < stands(0, quarter)
   // Taller than long, it's a side view only if it's a boot with a shaft: one end (the heel's) stands well
   // over the other (a shoe shot from an angle is a block).
   if (long < 1 && Math.min(tall(0, quarter), tall(SIDE_BINS - quarter, SIDE_BINS)) > 0.6 * Math.max(tall(0, quarter), tall(SIDE_BINS - quarter, SIDE_BINS))) return null
@@ -1979,6 +1999,54 @@ export function shoeSide(data, w, h, { model = null } = {}) {
     colours: shoeColours(lab, mask, w, h, { left, right, high, low, toeRight, soleThick }),
     mask, open: open && open.map((v, i) => v & mask[i]), openShare: +openShare.toFixed(3), w, h
   }
+}
+
+// The line of shadow a heel leaves on the floor under its arch, when the cut-out took it for shoe: in a column,
+// a thin run at the very bottom, clear backdrop over it, then the shoe (the sole's underside, up in the air). It's
+// the backdrop's own colour a little darker; a thin sole under an open sandal (a flip-flop's, with its strap over
+// it) is its own colour, or far darker. Left in, the sole reads as flat on the floor from heel to toe, and a
+// stiletto sandal was built as a flat. Taken out of the mask in place, in stretches of a few columns or more
+// (and out of `also`, a mask whose openings are filled, from the shoe's underside down).
+export function floorShadow(mask, lab, bg, far, w, h, also = null) {
+  let left = w, right = -1, low = -1
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (mask[y * w + x]) { left = Math.min(left, x); right = Math.max(right, x); low = Math.max(low, y) }
+  if (right < left) return 0
+  const thin = Math.max(3, Math.round((right - left + 1) * 0.055))
+  const found = new Int32Array(w).fill(-1), over = new Int32Array(w), gaps = new Int32Array(w)
+  for (let x = left; x <= right; x++) {
+    let y = h - 1
+    while (y >= 0 && !mask[y * w + x]) y--
+    if (y < low - thin) continue
+    const bottom = y
+    while (y >= 0 && mask[y * w + x]) y--
+    const run = bottom - y
+    let gap = 0
+    while (y >= 0 && !mask[y * w + x]) { y--; gap++ }
+    if (y < 0 || run > thin || gap < Math.max(5, run * 1.5)) continue
+    let l = 0, c = 0
+    for (let q = bottom; q > bottom - run; q--) { const i = q * w + x; l += lab[3 * i]; c += Math.hypot(lab[3 * i + 1] - bg[1], lab[3 * i + 2] - bg[2]) }
+    const darker = bg[0] - l / run
+    if (globalThis.__floorLog) globalThis.__floorLog.push([x, run, gap, +(c / run).toFixed(1), +darker.toFixed(1), +far[1].toFixed(1)])
+    if (c / run <= Math.max(4, far[1] * 3) && darker > -2 && darker < 32) { found[x] = bottom - run; over[x] = y; gaps[x] = gap }
+  }
+  let cleared = 0
+  for (let x = left; x <= right; x++) {
+    if (found[x] < 0) continue
+    let end = x
+    while (end + 1 <= right && found[end + 1] >= 0) end++
+    // (Under an arch: somewhere along it the sole stands a tenth of the shoe's length over the floor. A pale sole
+    // under a flip-flop's strap doesn't.)
+    let tallest = 0
+    for (let q = x; q <= end; q++) tallest = Math.max(tallest, gaps[q])
+    if (end - x + 1 >= Math.max(4, (right - left + 1) * 0.04) && tallest >= (right - left + 1) * 0.1) for (let q = x; q <= end; q++) {
+      for (let y = found[q] + 1; y < h; y++) mask[y * w + q] = 0
+      // (And from the shoe's underside down in the other mask.)
+      if (also) for (let y = over[q] + 1; y < h; y++) also[y * w + q] = 0
+      cleared++
+    }
+    x = end
+  }
+  return cleared
 }
 
 const VIEW_BANDS = 8
