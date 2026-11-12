@@ -31,6 +31,7 @@ const LAYOUT = [
   ["x", Float32Array, d => d.x.length], ["p", Float32Array, d => d.p.length], ["v", Float32Array, d => d.v.length],
   ["w", Float32Array, d => d.w.length], ["clear", Float32Array, d => d.w.length],
   ["edges", Int32Array, d => d.edges.length], ["rest", Float32Array, d => d.rest.length], ["edgeRib", Uint8Array, d => d.edgeRib.length],
+  ["tethers", Int32Array, d => d.tethers.length], ["tetherRest", Float32Array, d => d.tetherRest.length],
   ["bends", Int32Array, d => d.bends.length], ["bendRest", Float32Array, d => d.bendRest.length], ["bendHem", Uint8Array, d => d.bendHem.length],
   ["neighbourStart", Int32Array, d => d.neighbourStart.length], ["neighbours", Int32Array, d => d.neighbours.length],
   ["hashHead", Int32Array, () => HASH], ["hashNext", Int32Array, d => d.w.length]
@@ -119,6 +120,11 @@ export class ClothKernel {
 
   solveEdges(compliance, ribCompliance, squeeze) {
     this.fn.solve(this.ptr.p, this.ptr.w, this.ptr.edges, this.ptr.rest, this.drape.rest.length, compliance, ribCompliance, this.ptr.edgeRib, squeeze)
+  }
+
+  // The tethers (see drape.js's TETHER): threads that only pull, so `slack` times softer pushed together.
+  solveTethers(compliance, slack) {
+    this.fn.solve(this.ptr.p, this.ptr.w, this.ptr.tethers, this.ptr.tetherRest, this.drape.tetherRest.length, compliance, compliance, 0, slack)
   }
 
   solveBends(compliance, hemCompliance) {

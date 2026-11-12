@@ -23,7 +23,7 @@
 //   const gpu = await GpuDrape.start()   // null without WebGPU
 //   Drape.gpu = gpu                      // from now on Drape#step uses it where it's quicker
 //   ... drape.step() ...; if (gpu.pending.size) await gpu.sync()
-import { CLOTHS, SQUEEZE } from "lib/garments/drape"
+import { CLOTHS, SQUEEZE, TETHER } from "lib/garments/drape"
 import { ClothKernel, KERNEL_ON } from "lib/garments/cloth_kernel"
 
 const FRAME = 1 / 60, SUBSTEPS = 10, GRAVITY = -9.81
@@ -65,8 +65,9 @@ const FLAG = { STILL: 1, SEWN: 2, LAYERS: 4, ENVELOPE: 8, TUCK_PRESS: 16, QUIET:
 // Per point (U[oFlags + i]): which arm (bits 0-1: 1 left, 2 right), which leg (bits 2-3), on a tucked
 // piece (bit 4), on the waistband (bit 5).
 const PF = { TUCK: 16, RING: 32 }
-// What each constraint is: a thread (0), a rib thread (1), a bend (2), a hem's bend (3), a seam being sewn (4).
-const CLASS = { EDGE: 0, RIB: 1, BEND: 2, HEM: 3, SEW: 4 }
+// What each constraint is: a thread (0), a rib thread (1), a bend (2), a hem's bend (3), a seam being sewn (4),
+// a tether (5: drape.js's TETHER, a thread that only pulls).
+const CLASS = { EDGE: 0, RIB: 1, BEND: 2, HEM: 3, SEW: 4, TETHER: 5 }
 
 const SHADER = /* wgsl */ `
 const GROUP = ${GROUP}u;
@@ -119,8 +120,11 @@ fn setP(i: u32, q: vec3<f32>) { S[2u * pu(0u) + i] = vec4<f32>(q, 0.0); }
     return;
   }
   if (len < 1e-9) { return; }
+  // A tether only pulls: slack, it does nothing.
+  if (cls == ${CLASS.TETHER}u && len <= rest) { return; }
   let wa = F[pu(${W.oW}u) + a]; let wb = F[pu(${W.oW}u) + b];
   var alpha = pf(${W.cEdge}u);
+  if (cls == ${CLASS.TETHER}u) { alpha *= ${TETHER || 1}.0; }
   if (cls == ${CLASS.RIB}u) { alpha = pf(${W.cRib}u); }
   if (cls == ${CLASS.BEND}u) { alpha = pf(${W.cBend}u); }
   if (cls == ${CLASS.HEM}u) { alpha = pf(${W.cHem}u); }
@@ -655,14 +659,14 @@ class GpuMirror {
       d.ring.sewnAt = new Map(points.map(j => [j, d.x[3 * j + 1]]))
     }
     const now = {
-      edges: d.edges, bends: d.bends, sewing: d.sewing, map: d.map, n: d.x.length / 3,
+      edges: d.edges, bends: d.bends, tethers: d.tethers, sewing: d.sewing, map: d.map, n: d.x.length / 3,
       field: d.field, layers: d.field?.layers ?? null,
       attach: d.attach, envelope: d.envelope, tuck: d.tuck, feet: d.feet, arms: d.arms, hands: d.hands,
       ring: d.ring?.sewnAt ?? d.ring, snug: d.snug, w: d.w
     }
     const changed = key => now[key] !== this.seen[key]
     let data = false
-    if (["edges", "bends", "sewing", "map", "n"].some(changed)) { this.buildState(now.n); data = true }
+    if (["edges", "bends", "tethers", "sewing", "map", "n"].some(changed)) { this.buildState(now.n); data = true }
     if (changed("field") || changed("layers")) { this.buildFields(); data = true }
     if (data || Object.keys(now).some(changed)) this.buildData()
     this.seen = now
@@ -680,8 +684,10 @@ class GpuMirror {
     this.staging = device.createBuffer({ size: 16 * n, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
     const sewing = d.sewn ? new Int32Array(0) : d.sewing ?? new Int32Array(0)
     const sewCount = sewing.length / 2
+    const tethers = d.tethers ?? new Int32Array(0), tetherRest = d.tetherRest ?? new Float32Array(0)
     const { threads, colours } = coloured([
       { pairs: sewing, rest: new Float32Array(sewCount), alphaOf: () => CLASS.SEW },
+      { pairs: tethers, rest: tetherRest, alphaOf: () => CLASS.TETHER },
       { pairs: d.edges, rest: d.rest, alphaOf: e => (d.edgeRib[e] ? CLASS.RIB : CLASS.EDGE) },
       { pairs: d.bends, rest: d.bendRest, alphaOf: e => (d.bendHem[e] ? CLASS.HEM : CLASS.BEND) }
     ])
@@ -689,11 +695,13 @@ class GpuMirror {
     const f = new Float32Array(threads.buffer), u = new Uint32Array(threads.buffer)
     for (let k = 3; k < u.length; k += 4) u[k] = f[k]
     this.threads = u
-    // Which colours are the seams' (the first list's), and which the threads' and bends'.
+    // Which colours are the seams' (the first list's), which the tethers' (the second's), and which the threads'
+    // and bends'.
     this.sewColours = []
+    this.tetherColours = []
     this.solveColours = []
     let total = 0
-    colours.forEach(([, count], c) => { (total < sewCount ? this.sewColours : this.solveColours).push(c); total += count })
+    colours.forEach(([, count], c) => { (total < sewCount ? this.sewColours : total < sewCount + tetherRest.length ? this.tetherColours : this.solveColours).push(c); total += count })
     this.colours = colours
     const ranges = new Uint32Array(64 * Math.max(1, colours.length))
     colours.forEach(([offset, count], c) => { ranges[64 * c] = offset; ranges[64 * c + 1] = count })
@@ -917,6 +925,8 @@ class GpuMirror {
       pass.setPipeline(p.predict); pass.dispatchWorkgroups(groups)
       pass.setPipeline(p.solve)
       if (sew) colours(this.sewColours)
+      // (Tethers once it's sewn, as Drape#stepCpu.)
+      if (d.sewn && !sew) colours(this.tetherColours)
       colours(this.solveColours)
       if (self && s % 2 === 1) {
         pass.setPipeline(p.hashClear); pass.dispatchWorkgroups(HASH / GROUP)

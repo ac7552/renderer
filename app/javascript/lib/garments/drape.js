@@ -10,22 +10,22 @@ import { ClothKernel, KERNEL_ON } from "lib/garments/cloth_kernel"
 // How each kind of cloth behaves: compliance to stretching and to bending (higher is softer), how heavily
 // it's damped, and how far it sits off the skin (m).
 export const CLOTHS = {
-  jersey: { stretch: 2e-7, bend: 2e-4, drag: 1.2, thickness: 0.0035 },
-  rib: { stretch: 1.2e-6, bend: 3e-4, drag: 1.2, thickness: 0.0035 },
-  fleece: { stretch: 1.5e-7, bend: 1e-4, drag: 1.4, thickness: 0.005 },
-  twill: { stretch: 2e-8, bend: 4e-5, drag: 1.4, thickness: 0.004 },
-  shell: { stretch: 2e-8, bend: 6e-5, drag: 1.5, thickness: 0.004 },
-  wool: { stretch: 3e-8, bend: 2.5e-5, drag: 1.6, thickness: 0.005 },
+  jersey: { stretch: 2e-7, bend: 2e-4, drag: 1.2, thickness: 0.0035, give: 0.03 },
+  rib: { stretch: 1.2e-6, bend: 3e-4, drag: 1.2, thickness: 0.0035, give: 0.2 },
+  fleece: { stretch: 1.5e-7, bend: 1e-4, drag: 1.4, thickness: 0.005, give: 0.02 },
+  twill: { stretch: 2e-8, bend: 4e-5, drag: 1.4, thickness: 0.004, give: 0 },
+  shell: { stretch: 2e-8, bend: 6e-5, drag: 1.5, thickness: 0.004, give: 0 },
+  wool: { stretch: 3e-8, bend: 2.5e-5, drag: 1.6, thickness: 0.005, give: 0.01 },
   // Jeans: stiff, heavy cotton that keeps its shape down the leg.
-  denim: { stretch: 1.5e-8, bend: 1.6e-5, drag: 1.6, thickness: 0.005 },
+  denim: { stretch: 1.5e-8, bend: 1.6e-5, drag: 1.6, thickness: 0.005, give: 0 },
   // Dresses: stretch cloth gives a lot (so a dress cut smaller than the body clings), leather is stiff and
   // heavy-looking, silk and chiffon light and soft.
-  stretch: { stretch: 9e-7, bend: 1.5e-4, drag: 1.2, thickness: 0.003 },
-  leather: { stretch: 1e-8, bend: 1.2e-5, drag: 1.7, thickness: 0.005 },
-  silk: { stretch: 3e-8, bend: 5e-4, drag: 1.0, thickness: 0.0025 },
+  stretch: { stretch: 9e-7, bend: 1.5e-4, drag: 1.2, thickness: 0.003, give: 0.2 },
+  leather: { stretch: 1e-8, bend: 1.2e-5, drag: 1.7, thickness: 0.005, give: 0 },
+  silk: { stretch: 3e-8, bend: 5e-4, drag: 1.0, thickness: 0.0025, give: 0 },
   // Suiting, scuba, ponte, a boned bodice: it stretches some, but it's stiff to bend, so it skims over the
   // body's hollows and holds a flared skirt out instead of clinging to every curve.
-  structured: { stretch: 2.5e-7, bend: 2.2e-5, drag: 1.5, thickness: 0.0045 }
+  structured: { stretch: 2.5e-7, bend: 2.2e-5, drag: 1.5, thickness: 0.0045, give: 0.03 }
 }
 // (A puffer drapes as the nylon shell it's made of: drawn lofted, with its baffles puffed (fabric.js's QUILT).
 // Draped thicker or stiffer, it stands off the arms and its sleeves slip off them, or it slides off.)
@@ -56,6 +56,17 @@ const MAX_SEW_STEP = 0.0025   // metres a seam closes in one small step, at most
 // nowhere to go but out of its surface, and where it hangs free (a skirt below the knees) that runs away
 // a little more every small step, until the hem is flung up and lands crumpled.
 export const SQUEEZE = Number(typeof location !== "undefined" && new URLSearchParams(location.search).get("squeeze")) || 300
+// Tethers: threads only pull on their neighbours, so in one pass a point feels the cloth a step away, and a
+// garment's weight reaches its shoulders a row at a time: solved a pass a small step, the cloth over the
+// shoulders hung a tenth to a third too long and the whole garment a few centimetres low and wide (a size
+// up, drawn). A flat piece of cloth can't have two of its points further apart than they are on the pattern,
+// however it's folded, so points TETHER steps apart on the same piece are held to that as well: a thread that
+// only pulls (slack, it does nothing, so the cloth folds as freely as before), and carries the weight TETHER
+// rows at a time. 0 (or ?tether=off) for none.
+const TETHER_ASKED = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tether") : null
+export const TETHER = TETHER_ASKED === "off" ? 0 : Number(TETHER_ASKED) || 4
+// A tether only pulls: pushed together it's this many times softer (as good as not there).
+const SLACK = 1e30
 
 export class Drape {
   // The graphics card's solver, where the drape runs in a worker with WebGPU (gpu_drape.js's GpuDrape), or null.
@@ -244,6 +255,11 @@ export class Drape {
       this.bendHem[i] = bends[4 * i + 3] ? 1 : 0
     }
     this.triangles = Uint32Array.from(tris)
+    const tethers = TETHER ? tetherPairs(this.cloth, this.isRib, TETHER, this.tetherStep ??= medianRest(this.rest) * 100) : []
+    const kept = tethers.filter(([a, b]) => map[a] !== map[b])
+    this.tethers = Int32Array.from(kept.flatMap(([a, b]) => [map[a], map[b]]))
+    const taut = 1 + (this.params.give ?? 0)
+    this.tetherRest = Float32Array.from(kept, ([, , rest]) => rest * taut)
     // The points and constraints into WebAssembly's memory (again after the seams close: new arrays).
     this.kernel = KERNEL_ON && !this.noKernel ? new ClothKernel(this) : null
   }
@@ -277,6 +293,10 @@ export class Drape {
     const fall = GRAVITY * h * (gravity === true ? 1 : Number(gravity) || 0)
     const stretch = this.params.stretch / (h * h), ribStretch = CLOTHS.rib.stretch / (h * h)
     const bend = this.params.bend / (h * h)
+    // (A tether is TETHER threads end to end: it gives as they would together.)
+    // Only once the garment is sewn: its pieces are laid round the body and drawn together by their seams, and
+    // give a little on the way (held to their flat size meanwhile, a sleeve can't reach its armhole).
+    const tether = stretch * TETHER, taut = this.sewn && !sew && this.tetherRest.length > 0
     for (let s = 0; s < SUBSTEPS; s++) {
       if (kernel) kernel.predict(n, h, fall)
       else {
@@ -289,9 +309,11 @@ export class Drape {
       }
       if (sew) this.pullSeams()
       if (kernel) {
+        if (taut) kernel.solveTethers(tether, SLACK)
         kernel.solveEdges(stretch, ribStretch, SQUEEZE)
         kernel.solveBends(bend, bend * HEM_BEND)
       } else {
+        if (taut) solveDistances(p, w, this.tethers, this.tetherRest, tether, tether, null, SLACK)
         solveDistances(p, w, this.edges, this.rest, stretch, ribStretch, this.edgeRib, SQUEEZE)
         solveDistances(p, w, this.bends, this.bendRest, bend, bend * HEM_BEND, this.bendHem)
       }
@@ -771,6 +793,76 @@ function solveDistances(p, w, pairs, rest, compliance, ribCompliance, rib, squee
     p[a] += sx * wa; p[a + 1] += sy * wa; p[a + 2] += sz * wa
     p[b] -= sx * wb; p[b + 1] -= sy * wb; p[b + 2] -= sz * wb
   }
+}
+
+function medianRest(rest) {
+  if (!rest.length) return 0.016
+  const sorted = Float32Array.from(rest).sort()
+  return sorted[sorted.length >> 1]
+}
+
+// The tethers of a cloth: for each of its points, the points of the same piece about `steps` threads away
+// in three directions (along the cloth's rows and the two diagonals of its lattice), where the straight line
+// between them stays on the piece (round a neckline or an armhole the cloth's own way is longer than that,
+// and a tether straight across would pull it tight). Not through rib, which stretches. step: the cloth's
+// spacing (cm). Returns [[pattern point, pattern point, flat distance (m)], ...].
+export function tetherPairs(cloth, isRib, steps, step) {
+  const pts = cloth.points, n = pts.length
+  const reach = steps * step, cell = reach
+  const key = (p, cx, cy) => `${p},${cx},${cy}`
+  const grid = new Map()
+  for (let i = 0; i < n; i++) {
+    const k = key(cloth.panel[i], Math.floor(pts[i][0] / cell), Math.floor(pts[i][1] / cell))
+    const list = grid.get(k)
+    if (list) list.push(i); else grid.set(k, [i])
+  }
+  // Whether [x, y] is on the piece: a point of it is within most of a step.
+  const fine = new Map(), fineCell = step
+  for (let i = 0; i < n; i++) {
+    const k = key(cloth.panel[i], Math.floor(pts[i][0] / fineCell), Math.floor(pts[i][1] / fineCell))
+    const list = fine.get(k)
+    if (list) list.push(i); else fine.set(k, [i])
+  }
+  const near2 = (0.8 * step) ** 2
+  const onPiece = (panel, x, y) => {
+    const cx = Math.floor(x / fineCell), cy = Math.floor(y / fineCell)
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      for (const j of fine.get(key(panel, cx + ox, cy + oy)) ?? []) if ((pts[j][0] - x) ** 2 + (pts[j][1] - y) ** 2 < near2) return true
+    }
+    return false
+  }
+  const out = []
+  const best = [-1, -1, -1], bestOff = [0, 0, 0]
+  for (let i = 0; i < n; i++) {
+    if (isRib?.[i]) continue
+    const panel = cloth.panel[i], [x, y] = pts[i]
+    best.fill(-1); bestOff.fill(Infinity)
+    const cx = Math.floor(x / cell), cy = Math.floor(y / cell)
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      for (const j of grid.get(key(panel, cx + ox, cy + oy)) ?? []) {
+        if (j === i || isRib?.[j]) continue
+        const dx = pts[j][0] - x, dy = pts[j][1] - y
+        // Half the directions (the other half are their other ends' tethers): rightwards along the row, up
+        // to the right, up to the left.
+        if (dy < -1e-6 || (Math.abs(dy) <= 1e-6 && dx < 0)) continue
+        const d = Math.hypot(dx, dy), off = Math.abs(d - reach)
+        if (off > 0.6 * step) continue
+        const angle = Math.atan2(dy, dx)   // 0 .. π
+        const sector = angle < Math.PI / 6 || angle > (5 * Math.PI) / 6 ? 0 : angle < Math.PI / 2 ? 1 : 2
+        const aim = sector === 0 ? (angle > Math.PI / 2 ? Math.PI : 0) : sector === 1 ? Math.PI / 3 : (2 * Math.PI) / 3
+        const score = off / step + Math.abs(angle - aim) * steps
+        if (score < bestOff[sector]) { bestOff[sector] = score; best[sector] = j }
+      }
+    }
+    for (const j of best) {
+      if (j < 0) continue
+      const [bx, by] = pts[j]
+      let on = true
+      for (let k = 1; k < 2 * steps && on; k++) on = onPiece(panel, x + ((bx - x) * k) / (2 * steps), y + ((by - y) * k) / (2 * steps))
+      if (on) out.push([i, j, Math.hypot(bx - x, by - y) / 100])
+    }
+  }
+  return out
 }
 
 // The whole drape: sew with gravity off, first the body's own seams (with the bands held on their edges) and

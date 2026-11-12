@@ -477,10 +477,14 @@ export default class extends Controller {
     garment.cuffTone = printed && wrap ? read?.cuffTone ?? null : null
   }
 
-  // The 3D view's check against the shop's photo (look_check.js), for the top: it runs once the clothes are
-  // on (and the photo is read), behind the veil, which stays until it passes. A reading that doesn't match is
-  // tried again another way (nextReading), up to three tries; then the person is told, and offered the fit in
-  // plain colour or the AI picture. Once per garment: a new size or body doesn't need it again.
+  // The 3D view's check against the shop's photo (look_check.js), for the top: once, when the clothes are on
+  // (and the photo is read), while they're already shown. It no longer holds the veil, reads the photo again
+  // another way or falls back to plain colour: each try was a new reading and a new drape, seconds to minutes
+  // of "Adjusting the print (try 2 of 3)…", for a print the shop's photo then replaces point for point
+  // (stage.js's advanceRedrape). What it found is kept with the garment (lookChecks: its row says when its
+  // outline isn't its photo's; the validation runs report it). Once per garment: a new size or body doesn't
+  // need it again. With ?look=strict in the page's address it's as it was: behind the veil, up to three
+  // readings (nextReading), then the choice of a plain look or the AI picture (for checking readings).
   queueLookCheck() {
     const item = this.outfit.top, garment = item?.garment
     // A top that couldn't be matched and has since been taken off (or swapped) no longer holds the veil.
@@ -490,10 +494,10 @@ export default class extends Controller {
       return
     }
     if (this.lookStuckOn === garment) return
-    this.setLookWords(this.lookWords ?? "Checking it against the store photo…")
+    if (LOOK_STRICT) this.setLookWords(this.lookWords ?? "Checking it against the store photo…")
     if (garment.lookPending || !this.stage.settled || this.lookRunning === garment) return
     this.lookRunning = garment
-    this.runLookCheck(garment).catch(error => {
+    ;(LOOK_STRICT ? this.runLookTries(garment) : this.runLookCheck(garment)).catch(error => {
       // A check that can't run (no WebGL readback, say) mustn't keep the clothes hidden.
       console.warn("[look] check didn't run:", error)
       garment.lookDone = true
@@ -501,7 +505,31 @@ export default class extends Controller {
     }).finally(() => { if (this.lookRunning === garment) this.lookRunning = null })
   }
 
+  // The check, once. A dress whose outline didn't match its photo's is cut again, once, its hem as much wider
+  // (or narrower) as the render fell short (or went past): a better cut, not another check.
   async runLookCheck(garment) {
+    const current = () => this.outfit.top?.garment === garment
+    await this.lookReady()
+    if (!current()) return
+    const result = await this.lookResult(garment)
+    if (!current()) return
+    garment.lookChecks = result
+    garment.lookDone = true
+    this.setLookWords(null)
+    if (!result || result.ok) return
+    rememberLookFailure(garment, 1, result)
+    const shape = result.failed.includes("shape") && !garment.reshaped && reshaped(garment.cut?.shape, result.checks.shape)
+    if (shape) {
+      garment.reshaped = true
+      garment.cut = { ...garment.cut, shape }
+      this.render()
+    }
+    // Its row says when its outline still isn't its photo's.
+    if (result.checks?.shape?.pass === false) this.renderOutfit()
+  }
+
+  // ?look=strict: the check behind the veil, a reading that doesn't match tried again another way.
+  async runLookTries(garment) {
     const current = () => this.outfit.top?.garment === garment
     for (let attempt = 1; ; ) {
       await this.lookReady()

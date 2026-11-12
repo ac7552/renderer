@@ -14,6 +14,11 @@
 
 // How far a bank entry's measurements may be from the garment's (a share) and still start it.
 const NEAR = 0.2
+// Which solver an entry was draped by: entries from an older one aren't used (the cloth hangs differently, and
+// a garment started from where another solver left it has further to go than one started from scratch).
+// 2: the cloth is held to its own size by tethers (drape.js's TETHER); before, it hung a few per cent long.
+// Rebuild the bank (script/bank/build.js) after changing it.
+export const BANK_VERSION = 2
 // The nearest stored points a new point takes its start from.
 const K = 3
 
@@ -33,6 +38,7 @@ export class DrapeBank {
     const want = signature(top)
     let best = null, bestFar = Infinity
     for (const meta of this.index) {
+      if (meta.version !== BANK_VERSION) continue
       if (meta.style !== want.style || meta.bodyType !== bodyType || meta.panels !== want.panels) continue
       const far = distance(meta.measures, want.measures)
       if (far == null || far > NEAR || far >= bestFar) continue
@@ -94,7 +100,7 @@ export function exportEntry(d, bodyType) {
   const sig = signature(top)
   const round = (v, k = 4) => Math.round(v * 10 ** k) / 10 ** k
   return {
-    version: 1, style: sig.style, bodyType, panels: sig.panels, measures: sig.measures, panelNames: names,
+    version: BANK_VERSION, style: sig.style, bodyType, panels: sig.panels, measures: sig.measures, panelNames: names,
     item: { name: top.item.name, kind: top.item.kind, style: top.item.style, fabric: top.item.fabric },
     places: places.map(([p, u, v]) => [p, round(u), round(v)]),
     restBind: Array.from(d.restBind, v => round(v, 5)),

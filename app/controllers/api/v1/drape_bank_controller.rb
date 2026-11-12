@@ -16,7 +16,7 @@ module Api
         DIR.join(file).write(JSON.generate(entry))
         index = JSON.parse(DIR.join("index.json").read) rescue []
         index.reject! { it["file"] == file }
-        index << { "file" => file, "style" => entry["style"], "bodyType" => entry["bodyType"], "panels" => entry["panels"], "measures" => entry["measures"], "name" => entry.dig("item", "name") }
+        index << { "file" => file, "version" => entry["version"], "style" => entry["style"], "bodyType" => entry["bodyType"], "panels" => entry["panels"], "measures" => entry["measures"], "name" => entry.dig("item", "name") }
         DIR.join("index.json").write(JSON.pretty_generate(index))
         render json: { file:, entries: index.size }
       end

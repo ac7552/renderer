@@ -125,6 +125,8 @@ const WAITING = "waiting"
 // Draping in a Web Worker (remote_drape.js), so turning the mannequin stays smooth while the cloth settles;
 // ?drape=page drapes on the page instead (it falls back to that by itself where workers can't start).
 const DRAPE_IN_WORKER = typeof location !== "undefined" && typeof Worker !== "undefined" && new URLSearchParams(location.search).get("drape") !== "page"
+// Frames a garment started from the bank eases to its own size before it settles (see startFromBank).
+const BANK_EASE = 12
 const BANK_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("bank") !== "off"
 // The store's photographs laid on a top's cloth point for point (redrape.js); ?redrape=off does without.
 const REDRAPE_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("redrape") !== "off"
@@ -1218,7 +1220,12 @@ export class FittingStage {
     drape.v.fill(0)
     // A short settle where it was put (the entry's garment was a little different: its own measurements, so
     // every thread is a little long or short), then it's posed as a drape just sewn is, in one step.
-    top.steps = (function* () { yield* drape.settle(80, 30) })()
+    // (Eased to its own size first, keeping no speed: the entry's cloth may be a size off or hang longer than
+    // this one's threads allow, and let go at once it snaps back hard enough to throw a sleeve off its arm.)
+    top.steps = (function* () {
+      for (let k = 0; k < BANK_EASE; k++) { drape.step({ gravity: 0, sew: false, still: true }); yield "settling" }
+      yield* drape.settle(80, 30)
+    })()
     top.frames = 0
     top.phase = "settling"
     top.banked = true
