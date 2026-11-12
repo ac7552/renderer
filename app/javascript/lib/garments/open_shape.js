@@ -83,16 +83,32 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
   // A heel's footbed: the photo's underside from the arch forward; behind the arch's highest point (where the
   // stem begins and the photo's underside drops to the floor) the arch's line carried on up to the heel's back,
   // no higher than the photo's shoe there less the bed's thickness. Its top is the bed's thickness over that.
-  let archAt = 0.3, archTop = -Infinity
-  // (The stem: where the photo's underside stands on the floor behind the arch; the arch's top just ahead of it.)
-  let stemFront = 0
-  if (heeled) for (let u = 0.02; u <= 0.45; u += 0.005) if (yBottom(u) < floor + 0.01 * s) stemFront = u
-  if (heeled) for (let u = stemFront + 0.005; u <= stemFront + 0.15; u += 0.005) if (yBottom(u) > archTop) { archTop = yBottom(u); archAt = u }
-  const slope = heeled ? Math.max(0, (yBottom(archAt) - yBottom(archAt + 0.08)) / 0.08) : 0
+  // The underside: the photo's, bridged over the stem. The bridge is the tightest line over the photo's underside
+  // from the heel's back to the ball (its upper hull); where the photo's underside falls well below that (the
+  // stem, standing on the floor) the footbed keeps to the bridge.
+  const hull = []
+  if (heeled) {
+    for (let u = 0.03; u <= 0.62; u += 0.01) {
+      const pt = [u, yBottom(u)]
+      while (hull.length >= 2) {
+        const [a, c] = [hull[hull.length - 2], hull[hull.length - 1]]
+        if ((c[0] - a[0]) * (pt[1] - a[1]) - (c[1] - a[1]) * (pt[0] - a[0]) >= 0) hull.pop(); else break
+      }
+      hull.push(pt)
+    }
+  }
+  const bridge = u => {
+    const v = Math.min(0.62, Math.max(0.03, u))
+    for (let k = 0; k + 1 < hull.length; k++) if (v <= hull[k + 1][0]) { const [a, c] = [hull[k], hull[k + 1]]; return a[1] + (c[1] - a[1]) * (v - a[0]) / (c[0] - a[0] || 1) }
+    return hull.length ? hull[hull.length - 1][1] : yBottom(u)
+  }
   const seat = Math.min(thickest, 0.012 * s)
   const under = u => {
-    if (u >= archAt) return yBottom(u)
-    return Math.max(floor, Math.min(archTop + slope * (archAt - u) * 0.6, yTop(Math.max(0.03, u)) - seat))
+    if (u > 0.62) return yBottom(u)
+    const line = bridge(u), own = yBottom(Math.max(0.03, u))
+    // (Eased from the photo's own underside to the bridge as it falls 5 to 15 mm below it.)
+    const w = Math.min(1, Math.max(0, (line - own - 0.005 * s) / (0.01 * s)))
+    return own + (line - own) * w
   }
   const bedBottom = u => (heeled ? Math.max(under(inEnds(u)), u > 0.55 ? ySole(inEnds(u)) - thickest : -Infinity) : yBottom(inEnds(u)))
   const bedTop = u => {
@@ -164,7 +180,8 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
   const squeeze = new Float32Array(BINS).fill(1)
   for (let b = 0; b < BINS; b++) {
     const u = (b + 0.5) / BINS, bed = bedTop(u), shown = yTop(u) - bed, foot = skinTop[b] - bed
-    if (shown > 0.02 * s && foot > 0.01 * s) squeeze[b] = Math.min(2, Math.max(0.35, shown / foot))
+    // (Not where the photo's shoe stands far over the foot: an ankle strap, in the air ahead of the leg.)
+    if (shown > 0.02 * s && foot > 0.01 * s && shown < foot * 1.6 && u > leg) squeeze[b] = Math.max(0.35, shown / foot)
   }
   const squeezeAt = u => {
     let sum = 0, n = 0
@@ -192,7 +209,8 @@ export function openGeometry(body, frame, side, outline, views, style, { said = 
     seen[o] = u; seen[o + 1] = y
     if (u < 0 || u > 1) continue
     const bed = bedTop(u), above = (y - bed + 0.002 * s) / (0.004 * s)
-    if (above <= 0) continue
+    // (The photo's shoe a little over the footbed's top is its insole and seat, not a strap.)
+    if (above <= 0 || yTop(u) - bed < 0.012 * s) continue
     let read = bed + (y - bed) * squeezeAt(u), along = u
     // (A thin strap keeps a few millimetres' width: read a little up and down too.)
     let m = Math.max(maskAt(u, read), 0.85 * maskAt(u, read + 0.002 * s), 0.85 * maskAt(u, read - 0.002 * s))
@@ -419,11 +437,9 @@ function stemRings(positions, index, { maskAt, bedBottom, floor, back, span, cen
       if (on) { from ??= u; to = u } else if (from != null) break
     }
     if (from == null) { if (rings.length) break; continue }
-    if (to - from > 0.4) console.warn('STEMLONG', y - floor, from, to, rings.length)
     if (to - from > 0.4) { if (rings.length < 3) return false; break }
     rings.push({ y, from, to })
   }
-  console.warn('STEM', JSON.stringify(rings.slice(0,40).map(r => [+(r.y - floor).toFixed(3), +r.from.toFixed(2), +r.to.toFixed(2)])))
   if (rings.length < 3) return false
   const base = positions.length / 3
   // (Each ring's ends eased over its neighbours': the photo's edge steps a pixel at a time.)
