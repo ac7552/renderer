@@ -1153,7 +1153,9 @@ export class FittingStage {
     // (A placed print stays on over the re-draped photo when the photo it was laid from had it painted out:
     // item.printPlaced, see fitting_room_controller.js.)
     d.top.setPrint(d.redrape && !item.printPlaced ? null : item.print ?? null, d.redrape ? null : item.backPrint ?? null)
-    d.top.setSleeves(d.redrape ? null : item.sleevePrint ?? null)
+    // (The sleeves' graphics kept for the re-draping, which lays them on plain sleeves: see advanceRedrape.)
+    d.sleevePrint = item.sleevePrint ?? null
+    d.top.setSleeves(d.redrape && !d.sleevesPlaced ? null : d.sleevePrint)
     d.top.setCuffTone(d.redrape ? null : item.cuffTone ?? null)
     d.top.setPhotoMap(d.redrape ?? item.photoMap ?? null)
     d.top.setCloseup(item.closeup ?? null)
@@ -2301,7 +2303,12 @@ export class FittingStage {
         d.foreign = guardForeign(d.top, uv, { front, back })
         // Plain cloth on the pieces the photos don't really show (a hood, a sleeve that took the body's
         // lettering, a back with no photo of its own), never something that isn't the garment.
-        d.trust = trustPieces(d.top, uv, { front, back })
+        // (A top with graphics down its sleeves keeps them as they were read and placed, on plain sleeves: on
+        // a photo of it laid flat each is folded round the sleeve's edge, half on the front photo and half on
+        // the back, and laid point for point the halves came out smeared, apart, and round the back of the arm:
+        // the graphics the page had first shown down the sleeves were gone from the front.)
+        d.trust = trustPieces(d.top, uv, { front, back }, { sleeves: Boolean(d.sleevePrint) })
+        d.sleevesPlaced = Boolean(d.sleevePrint) && d.trust.plain.some(name => /^sleeve/.test(name))
         if (d.redrapeTimes) d.redrapeTimes.laid = performance.now() - d.redrapeTimes.asked
         d.redrape = { image: front.flat ?? front.canvas, back: back ? { image: back.flat ?? back.canvas } : null, uv, collar: collarColour(front), collarStrip: collarStrip(front) }
         d.redrapeState = "done"
@@ -2317,7 +2324,7 @@ export class FittingStage {
           if (kept) hole.needsUpdate = true
         }
         d.top.setPrint(null, null)
-        d.top.setSleeves(null)
+        d.top.setSleeves(d.sleevesPlaced ? d.sleevePrint : null)
         d.top.setCuffTone(null)
         d.top.setPhotoMap(d.redrape)
         this.onRedrape?.(slot, item)

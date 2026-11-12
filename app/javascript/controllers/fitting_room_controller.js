@@ -351,7 +351,9 @@ export default class extends Controller {
         // whatever the kind: a jacket's or a coat's went on as the shop gave them, and a varsity's white
         // sleeves, lost in the light backdrop, were laid with the body's navy.
         if (!bottoms) garment.cleanPhotos = { front: frontPhoto, back: backPhoto }
-        const readBack = src => (bottoms ? readBottomPhoto(src) : readPhoto(src)).catch(() => null)
+        // (The back read with the chart's shape as the front is: without it, a back with a big graphic had its
+        // sleeves' graphics unread, and the sleeves showed only the halves the front photo has.)
+        const readBack = src => (bottoms ? readBottomPhoto(src) : readPhoto(src, { shape: frontShape(garment.chart) })).catch(() => null)
         let back = backPhoto ? await readBack(backPhoto) : null, backSrc = back ? backPhoto : null
         if (!back && backPhoto && backPhoto !== garment.back_photo) { back = await readBack(garment.back_photo); backSrc = back ? garment.back_photo : null }
         // Not the same garment's back after all (a close-up, or a photo on a model): a different colour, or a

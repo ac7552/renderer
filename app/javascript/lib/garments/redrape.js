@@ -1587,13 +1587,14 @@ export function similarity(src, dst) {
 //   sleeves, bands  plain when more of the piece is off the cloth's colour than the photo can explain:
 //                   a fifth of a sleeve (a sixth on a worn photo), half a band; a collar band always, in its
 //                   own colour (its label and the neck's inside show with it on a front photo)
+//                   sleeves always when their graphics are laid on separately (options.sleeves)
 //   the back        plain when there's no photo of it and the front has a graphic (a chest print isn't
 //                   on the back too), else the front laid on as before
 //
 // photos: { front, back } as loadPhotoForRedrape gives them; uv as registerPhoto gives it, changed in place.
 // Returns { plain: [piece names], far: { name: share } } (far: the share of each piece's points off the
 // cloth's colour, before any were made plain).
-export function trustPieces(top, uv, photos) {
+export function trustPieces(top, uv, photos, { sleeves = false } = {}) {
   const { cloth } = top
   const n = cloth.points.length
   const names = cloth.panels
@@ -1640,6 +1641,8 @@ export function trustPieces(top, uv, photos) {
     // front of the neck; a cable-knit polo's and a plaid shirt's bands took the black hanger).
     else if (name === "collar") reason = "band"
     else if (allOver) reason = null
+    // Its sleeves' graphics are laid as read, each in one piece (options.sleeves): plain cloth under them.
+    else if (/^sleeve/.test(name) && sleeves) reason = "sleeve"
     else if (/^sleeve/.test(name) && share > (worn ? 0.16 : 0.2)) reason = "sleeve"
     // A plain garment's plain sleeves (no graphic on them): its calm cloth, not the sleeves as registered.
     // Photographed folded flat along the body, they gathered its shadows into smears and swirls.
