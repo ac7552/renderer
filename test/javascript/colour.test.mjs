@@ -60,3 +60,21 @@ test("middleColour: a little embroidery in another colour doesn't tint the cloth
   // All one colour: its median.
   assert.deepEqual(middleColour([[10, 20, 30], [10, 20, 30], [10, 20, 30]]), [20, 20, 20])
 })
+
+test("the lit colour is the cloth's where the light falls, not its shaded middle, and not a print's", async () => {
+  const { litColour, middleColour } = await import("lib/colour")
+  // Grey cloth: 40% of what's seen lit (176), half in shade (130), and a tenth a black print.
+  const s = [[], [], []]
+  for (let k = 0; k < 1000; k++) {
+    const v = k % 20 < 8 ? 176 + (k % 3) : k % 20 < 18 ? 130 + (k % 5) : 12
+    for (let c = 0; c < 3; c++) s[c].push(v)
+  }
+  const lit = litColour(s), middle = middleColour(s)
+  assert.ok(lit[0] >= 174 && lit[0] <= 179, `lit ${lit}`)
+  assert.ok(middle[0] < 172, `middle ${middle}`)
+  // Evenly lit cloth: the two agree.
+  const even = [[], [], []]
+  for (let k = 0; k < 1000; k++) { even[0].push(60 + (k % 4)); even[1].push(120 + (k % 4)); even[2].push(70 + (k % 4)) }
+  const a = litColour(even), b = middleColour(even)
+  assert.ok(Math.abs(a[1] - b[1]) <= 2 && Math.abs(a[0] - b[0]) <= 2)
+})

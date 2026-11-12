@@ -71,6 +71,27 @@ test("a white sleeve lighter than the backdrop is cloth, however narrow", () => 
   for (const x of [52, 60, 180, 188]) assert.equal(found.mask[150 * w + x], 1, `x ${x}`)
 })
 
+test("a cream stripe right across a garment on a white backdrop is cloth, the shadow under the hem still not", () => {
+  const w = 240, h = 300, data = new Uint8ClampedArray(4 * w * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let c = [255, 255, 255]
+    // The body, in bands 20 rows deep: green, cream, brown, cream ...; a sleeve either side, apart from it.
+    const band = [[40, 119, 69], [246, 240, 222], [122, 88, 46], [246, 240, 222]][Math.floor((y - 60) / 20) % 4]
+    if (y >= 60 && y < 240 && x >= 70 && x <= 170) c = band
+    if (y >= 60 && y < 200 && ((x >= 40 && x <= 60) || (x >= 180 && x <= 200))) c = band
+    if (y >= 60 && y < 80 && x >= 40 && x <= 200) c = band
+    if (y >= 240 && y <= 246 && x >= 70 && x <= 170) c = [232, 232, 232]
+    data.set([...c, 255], 4 * (y * w + x))
+  }
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  for (const y of [85, 90, 130, 170, 210]) for (const x of [72, 120, 168]) assert.equal(found.mask[y * w + x], 1, `the cream stripe at ${x}, ${y}`)
+  assert.equal(found.mask[130 * w + 50], 1, "and on a sleeve")
+  assert.equal(found.box.bottom, 239, "the shadow under the hem isn't cloth")
+  // The gap between a sleeve and the body stays open (cloth above it at the shoulder, none below).
+  for (const y of [120, 180]) assert.equal(found.mask[y * w + 65], 0)
+})
+
 test("a hanger's hook and shoulders are cut off the top of the photo", () => {
   const { data, w, h } = photo({ hanger: true })
   const found = clothMask(data, w, h)

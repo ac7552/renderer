@@ -62,3 +62,25 @@ export function middleColour(samples) {
   if (near.length < n / 2 || near.length === n) return m
   return samples.map(channel => median(near.map(k => channel[k])))
 }
+
+// The colour of samples ([[r...], [g...], [b...]]) where the light falls on them: of those within TRIM of their
+// middle colour (so a print or another colour's stripe doesn't count), the mean of the ones between the 60th
+// and the 85th in a hundred by brightness. A shop photographs a garment evenly lit, so its cloth's colour there
+// is its lit colour; the page's figure stands in a key light with its sides and the insides of its legs in
+// shade, a third or more of what's seen, and the middle colour of that is a shaded one. Metered by its
+// middle, grey sweatpants were drawn 40 levels too light where the light fell (washed out) to bring their
+// shaded sides up to the photo's grey. (Not the very brightest: a sheen's highlights aren't the cloth's colour.)
+const LIT = [0.6, 0.85]
+export function litColour(samples) {
+  const m = middleColour(samples)
+  const n = samples[0].length
+  const near = []
+  for (let k = 0; k < n; k++) if (Math.hypot(samples[0][k] - m[0], samples[1][k] - m[1], samples[2][k] - m[2]) <= TRIM) near.push(k)
+  const use = near.length >= n / 2 ? near : Array.from({ length: n }, (_, k) => k)
+  const light = k => 0.2126 * samples[0][k] + 0.7152 * samples[1][k] + 0.0722 * samples[2][k]
+  use.sort((a, b) => light(a) - light(b))
+  const from = Math.floor(use.length * LIT[0]), to = Math.max(from + 1, Math.ceil(use.length * LIT[1]))
+  const sum = [0, 0, 0]
+  for (let k = from; k < to; k++) for (let c = 0; c < 3; c++) sum[c] += samples[c][use[k]]
+  return sum.map(v => Math.round(v / (to - from)))
+}

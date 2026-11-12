@@ -36,6 +36,9 @@ const SHADOW_REACH = 0.1
 // How much lighter than the backdrop (the sum of r, g and b) a pixel must be to be cloth whatever the garment's
 // colour: no shadow is lighter than what it falls on.
 const LIGHTER = 30
+// How tall a band of backdrop-like pixels with cloth above and below it can be and still be the garment's own
+// (a pale stripe, a white panel), as a share of the photo's height.
+const STRIPE_REACH = 0.25
 // Whether pixels [from, to) of a row (at offset row) are a panel of the garment near the backdrop's colour
 // rather than its shadow: a shadow fades, so its quarter by the backdrop (outerLeft: the stretch's left end)
 // is lighter than its quarter by the garment by more than a tenth of the backdrop's brightness; a panel is
@@ -83,7 +86,6 @@ export function clothMask(data, w, h) {
       last = x
     }
     if (start >= 0) runs.push([start, last])
-    let a0 = w, b0 = -1
     const clothIn = (a, b) => { for (let x = a; x <= b; x++) if (isCloth(y * w + x)) return true; return false }
     for (const [a, b] of runs) {
       let first = -1, lastCloth = -1
@@ -101,8 +103,29 @@ export function clothMask(data, w, h) {
         if (b - lastCloth >= reach && wideLight(data, y * w, lastCloth + 1, b + 1, bg, false)) lastCloth = b
       }
       out.fill(1, y * w + first, y * w + lastCloth + 1)
-      a0 = Math.min(a0, first); b0 = Math.max(b0, lastCloth)
     }
+  }
+  // A stripe or a panel of the backdrop's own colour right across the garment (cream stripes on a white sweep)
+  // has no cloth-coloured pixel in its rows to stretch between, and fell out of the mask whole: every pale
+  // stripe then took its neighbours' colour, and a striped knit came out with half its stripes. A shadow lies
+  // outside the garment (under a hem, beside a sleeve); what has cloth straight above and straight below it,
+  // inside the outline all the way, is the garment.
+  if (apart >= 24) {
+    const reach = Math.max(2, Math.round(h * STRIPE_REACH))
+    for (let x = 0; x < w; x++) {
+      let above = -1
+      for (let y = 0; y < h; y++) {
+        const k = y * w + x
+        if (out[k]) {
+          if (above >= 0 && y - above > 1 && y - above - 1 <= reach) for (let yy = above + 1; yy < y; yy++) out[yy * w + x] = 1
+          above = y
+        } else if (!m[k]) above = -1
+      }
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    let a0 = w, b0 = -1
+    for (let x = 0; x < w; x++) if (out[y * w + x]) { if (a0 === w) a0 = x; b0 = x }
     widths[y] = b0 >= a0 ? b0 - a0 + 1 : 0
   }
   const widest = Math.max(...widths)

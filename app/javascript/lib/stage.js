@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js"
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
-import { blockNear, deltaE, linearOf, middleColour } from "lib/colour"
+import { blockNear, deltaE, linearOf, litColour } from "lib/colour"
 import { TracedStill } from "lib/trace"
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js"
@@ -2353,7 +2353,7 @@ export class FittingStage {
     }
   }
 
-  // The middle colour (sRGB [r, g, b]) of `slot`'s cloth as the page shows it: the whole scene drawn as on
+  // The colour (sRGB [r, g, b]) of `slot`'s cloth as the page shows it where the light falls on it: the whole scene drawn as on
   // screen (its shading and contact shadows too, which a reading of the garment alone misses by half a stop),
   // from the front, and read where a second pass shows only that garment. Null for too little cloth seen.
   async meterShot(slot, hex = null) {
@@ -3121,7 +3121,7 @@ function addShapeKey(mesh, name, offsets) {
   return true
 }
 
-// The middle colour (sRGB, [r, g, b]) of a picture where a mask (the same size) is white, a pixel in from the
+// The lit colour (sRGB, [r, g, b]) of a picture where a mask (the same size) is white, a pixel in from the
 // mask's edges, every other pixel. Null for too few.
 function clothMedian({ data, width, height }, mask, target = null) {
   const on = (x, y) => x >= 0 && y >= 0 && x < width && y < height && mask.data[4 * (y * width + x)] > 128
@@ -3133,8 +3133,8 @@ function clothMedian({ data, width, height }, mask, target = null) {
   }
   if (s[0].length < 150) return null
   // (A garment in two colours far apart: the block nearer the photo's cloth, see blockNear.)
-  // (Its middle colour without what's far from it: see middleColour.)
-  return middleColour(blockNear(s, target))
+  // (Its colour where the light falls on it, without what's far from its middle colour: see litColour.)
+  return litColour(blockNear(s, target))
 }
 const METER_LAYER = 7
 const METER_MASK = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, toneMapped: false })
