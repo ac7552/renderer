@@ -72,7 +72,20 @@ node --test tests/javascript/*.test.mjs  # the page's modules: patterns, cloth, 
 
 ## Where it came from
 
-This is the fitting room of a larger app (Rails), taken out as a service of its own and moved from Ruby to Python.
+This is the fitting room of Fitroom, a Rails app of mine: my own side project, started on 21 October 2026, written
+in my own time and not for an employer or a client. Fitroom is MIT-licensed under my name and lives in my own GitHub
+account (`ac7552/fitroom`, private). Here its fitting room is taken out as a service of its own and moved from Ruby
+to Python.
+
+Its history comes with it: 234 of Fitroom's commits, from 21 October to 12 November 2026, joined to this
+repository's own by a merge ("Fitroom's history of the fitting room"). They're as they were made, with their authors,
+dates and messages unchanged, for the files this repository grew from: the fitting room's page and its JavaScript,
+the fit and import code (in Ruby), the size charts, the models, shoes and drapes, the scripts that built them, and
+their tests. Fitroom's other parts are left out of that history: accounts, deployment, the AI models' code and
+services, and the test data taken from real shops (see "Credits and licences"); some older comments in it still
+name the shop products they were tuned on. 94 of the 234 commits were written with Claude (Anthropic's coding
+assistant) and carry its name as their author. `git log --first-parent` shows this repository's commits alone.
+
 The Python server gives the same answers as the Ruby it replaces: every Ruby test was ported, and the two were run
 side by side on over 600 listings and 1,900 fits, agreeing on all but two ties between equally good sizes, which
 Python breaks by the chart's order. Two of the ported expectations (two baby tees' lengths) didn't hold in the Ruby
@@ -98,5 +111,9 @@ The code is MIT (see `LICENSE`). What it ships with:
   (`renderer/static/models/CREDITS.md`).
 - Some shoe templates are made from Google Scanned Objects, CC BY 4.0 (`renderer/static/shoes/CREDITS.md`).
 - The typefaces are under the SIL Open Font License (`renderer/static/fonts/`).
-- The tests' listings (`tests/fixtures/kith_listings.json`, `tests/test_dress_cut.py`) are real store listings'
-  public words, kept as test data for how listings are written.
+- The tests' listings (`tests/fixtures/sample_listings.json`, `tests/test_garment_import.py`, `tests/test_dress_cut.py`)
+  are made up: the brands ("Sample Label", "Sample House"…), product names, colours and style codes are invented,
+  and the descriptions keep only the plain garment words the import reads ("Ribbed crew neckline", "Relaxed fit").
+  Their size charts' measurements are kept from real charts, so the import is tested on sizes as shops publish them.
+  The shoe tests keep real brands' and models' names, because the shoe code sizes a shoe by its brand and knows a
+  last by its model's name (`renderer/shoes.py`, `lasts.js`).
