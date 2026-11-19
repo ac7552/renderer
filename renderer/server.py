@@ -21,7 +21,7 @@ from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import api, size_charts
+from . import api, sample_shop, size_charts
 
 STATIC = Path(__file__).parent / "static"
 MAX_BODY = 16 * 1024 * 1024
@@ -45,6 +45,7 @@ class Request:
         self.path = environ.get("PATH_INFO", "/") or "/"
         self.query = {key: values[-1] for key, values in parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True).items()}
         self.host = environ.get("HTTP_HOST") or environ.get("SERVER_NAME", "")
+        self.origin = f"{environ.get('wsgi.url_scheme') or 'http'}://{self.host}"
         self._body = None
 
     def body(self) -> dict:
@@ -108,7 +109,27 @@ class App:
             return self.html(self.render_page())
         if path == "/up":
             return self.text(200, "ok")
+        shop = self.sample_shop(request)
+        if shop:
+            return shop
         return self.file(path)
+
+    def sample_shop(self, request):
+        """The sample shop's answers (sample_shop.py), at the addresses a Shopify shop answers at, or None."""
+        path = request.path
+        if path == "/meta.json":
+            return self.json(200, sample_shop.meta())
+        found = sample_shop.PRODUCT_JSON.match(path)
+        item = sample_shop.find(found.group(1)) if found else None
+        if item:
+            return self.json(200, {"product": sample_shop.product(item, request.origin)})
+        found = sample_shop.PRODUCT.match(path)
+        item = sample_shop.find(found.group(1)) if found else None
+        if item:
+            return self.html(sample_shop.page(item, request.origin))
+        if found or sample_shop.PRODUCT_JSON.match(path):
+            return self.text(404, "Not found")
+        return None
 
     def api(self, request, route, method):
         parts = route.split("/")
@@ -129,12 +150,17 @@ class App:
         return self.json(404, {"error": "not_found", "message": "No such address."})
 
     def with_sample(self, request):
-        """The request's parameters, with this server's own sample page read from disk when that's the link."""
+        """The request's parameters, with this server's own sample page read from disk when that's the link, or its
+        sample shop's product as a Shopify shop answers it (with the size chart Kiwi Sizing would give)."""
         params, body = request.params(), request.body()
         try:
             link = urlsplit(str(params.get("url") or ""))
         except ValueError:
             return params, body
+        product = sample_shop.PRODUCT.match(link.path or "")
+        item = sample_shop.find(product.group(1)) if product else None
+        if item and link.netloc == request.host and not body.get("page_html"):
+            return params, {**body, "shop_data": sample_shop.shop_data(item, request.origin, self.static, given=body.get("shop_data"))}
         sample = SAMPLES.match(link.path or "")
         if sample and link.netloc == request.host and not body.get("page_html"):
             page = self.static / "samples" / f"{sample.group(1)}.html"

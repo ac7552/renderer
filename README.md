@@ -25,6 +25,13 @@ python -m renderer            # http://127.0.0.1:8000/  (--host, --port to chang
 The four sample garments under "No link? Try one of ours" and pasted charts work with no network: the server reads
 its own sample pages from disk. Reading a store's link needs the network, and only reaches public addresses.
 
+So does the sample shop under "Or from our sample shop": six made-up products (a tee, a hoodie, a coach jacket, jeans,
+a dress and a skirt) that the server answers for as a Shopify shop does, at `/products/<handle>`,
+`/products/<handle>.json` and `/meta.json`, with each one's Kiwi Sizing chart and photos. They go through the same
+reading as a real Shopify shop's link (the page reads the shop's product and photos, the server its chart), so that
+whole path can be tried offline. The products, charts and photos are invented (`renderer/data/sample_shop/`; the
+photos are drawn by `script/sample_shop/photos.py`).
+
 The 3D view uses WebGL. A browser without a graphics card (software WebGL) works too, but sews and drapes a garment
 in tens of seconds instead of a few.
 
@@ -45,6 +52,7 @@ node --test tests/javascript/*.test.mjs  # the page's modules: patterns, cloth, 
 | `renderer/shoes.py` | Fit for shoes: the last's length and width against the foot, by scale (US, UK, EU, cm) and brand |
 | `renderer/size_charts.py`, `renderer/data/size_charts/` | The built-in sample charts (made up; not any real brand's) |
 | `renderer/garment_import/` | A product page, a Shopify shop's product, or a pasted chart, read into a garment: what it is, its colour and cloth, its cut, and its finished measurements per size (`chart_reader.py`, `dress_cut.py`, `page.py`); `fetcher.py` fetches one page, public addresses only |
+| `renderer/sample_shop.py`, `renderer/data/sample_shop/`, `renderer/static/sample_shop/` | The made-up Shopify shop for trying links offline |
 | `renderer/api.py` | The JSON API |
 | `renderer/server.py` | The WSGI app: the page, its files, the API |
 | `renderer/static/js/lib/stage.js` | The 3D view (three.js): the mannequin, poses, lighting |
@@ -100,3 +108,4 @@ The code is MIT (see `LICENSE`). What it ships with:
 - The typefaces are under the SIL Open Font License (`renderer/static/fonts/`).
 - The tests' listings (`tests/fixtures/kith_listings.json`, `tests/test_dress_cut.py`) are real store listings'
   public words, kept as test data for how listings are written.
+- The sample shop's products, charts and photos are made up for this project (MIT like the rest).

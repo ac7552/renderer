@@ -2052,13 +2052,16 @@ function photoSize(chart) {
 // Many shops run on Shopify, which answers a product's details as small public JSON. Some big ones (Kith)
 // answer a browser at once but make an app wait, so this browser reads them and hands them to Fitroom: the
 // product, its shop's Shopify name, and its Kiwi Sizing chart when it has one. Null for other links, or when
-// the shop doesn't answer quickly; Fitroom then reads the link itself.
+// the shop doesn't answer quickly; Fitroom then reads the link itself. This server's own sample shop
+// (sample_shop.py) is read the same way, over plain http on this machine; its charts come from the server,
+// which gives the import the chart Kiwi Sizing would have answered.
 // (Exported for the validation's photo check, script/validation/photo_roles_check.js.)
 export async function readShop(link) {
   let url
   try { url = new URL(link) } catch { return null }
   const handle = url.pathname.match(/\/products\/([a-z0-9][a-z0-9_-]*)/i)?.[1]
-  if (!handle || url.protocol !== "https:") return null
+  const own = typeof location !== "undefined" && url.origin === location.origin
+  if (!handle || (url.protocol !== "https:" && !own)) return null
   const json = async (address, ms = 6000) => {
     try {
       const response = await fetch(address, { signal: AbortSignal.timeout(ms), credentials: "omit", headers: { Accept: "application/json" } })
@@ -2070,7 +2073,7 @@ export async function readShop(link) {
   if (!product?.title || !/\.myshopify\.com$/.test(shop ?? "")) return null
   const query = new URLSearchParams({ shop, product: String(product.id), title: product.title, tags: [product.tags].flat().join(","),
     type: product.product_type ?? "", vendor: product.vendor ?? "" })
-  const sizing = await json(`https://app.kiwisizing.com/api/getSizingChart?${query}`)
+  const sizing = own ? null : await json(`https://app.kiwisizing.com/api/getSizingChart?${query}`)
   const { id, handle: name, title, vendor, product_type, tags, body_html, images, options } = product
   const variants = (product.variants ?? []).slice(0, 40).map(v => ({ title: v.title }))
   // Every photo's role first (photo_roles.js: on its own from the front or the back, on a model, a close-up, a
