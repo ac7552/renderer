@@ -130,7 +130,7 @@ test("an unprinted dress is held to its colour and likeness only: its photo's sh
 })
 
 test("a logo cut off by the collar's band in the photo is held to where it sits, not its height or shape", () => {
-  // The adidas x Willy Chavarria jersey's back: a rose under the collar, its top in the collar's band in both.
+  // A football jersey's back: a rose under the collar, its top in the collar's band in both.
   const back = { color: "#252628", coverage: 0.0063, allOver: false, box: { left: 0.46, right: 0.552, top: 0.0794, bottom: 0.156, cx: 0.507, shape: 0.97 } }
   const render = { color: "#242528", coverage: 0.0133, allOver: false, box: { left: 0.419, right: 0.595, top: 0.0796, bottom: 0.116, cx: 0.516, shape: 2.55 } }
   assert.equal(compareLooks(back, render).ok, true, JSON.stringify(compareLooks(back, render).checks))

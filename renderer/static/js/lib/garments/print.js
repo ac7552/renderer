@@ -117,7 +117,7 @@ export async function readPhoto(src, { shape = null, hood = true, patterns = tru
 }
 
 // A tonal graphic as a patch of the photo at its full size (at the reading's, the lines of small lettering
-// under Kith's Armani eagle are a pixel tall and half lost): the graphic's box and each line of lettering
+// under an embroidered crest are a pixel tall and half lost): the graphic's box and each line of lettering
 // next to it, above or under, a rectangle round its marks, grown a little and feathered. Laid as one piece,
 // the patch is the graphic as photographed, its embroidery's shading and the cloth between its letters
 // with it, however faint its marks are against the cloth. found: readPhoto's reading. Returns { image (the
@@ -239,7 +239,7 @@ function tonalPatch(image, found) {
 // own pixels in them. Laid as one piece by its box at the photo's scale (dress.js's setPrint) over the photo
 // laid on point for point with it painted out (cleanedPhoto), so the registration can't stretch it: hung on
 // the hanger, the front's top corners droop, and a chest print's outer letters, laid so, ran up over the
-// shoulders (Kith's Rhude and Essentials hoodies). Not an all-over print, stripes or a mottled cloth: those
+// shoulders (two hoodies with a chest graphic and lettering below it). Not an all-over print, stripes or a mottled cloth: those
 // are the cloth itself. Returns tonalPatch's { image, coverage, fill, box } or null.
 function graphicPatch(image, found) {
   const p = found.print
@@ -253,8 +253,8 @@ function graphicPatch(image, found) {
   const edgeX = Math.max(2, Math.round(pw * 0.02)), edgeY = Math.max(2, Math.round(ph * 0.025))
   // Only the graphic on the chest. Marks running off the front's top or hem, or off its sides as a strip or a
   // band right across, are the collar and its label, a colour-blocked yoke, a stripe (a knit's colour blocks,
-  // Kith's Knicks sweater): the cloth, laid on with the photo. Judged on the marks as read (raw), each with
-  // those touching it: the print as laid fills in between its marks, and so had joined the Knicks letters to
+  // a sweater with big varsity letters): the cloth, laid on with the photo. Judged on the marks as read (raw), each with
+  // those touching it: the print as laid fills in between its marks, and so had joined the sweater's letters to
   // the yoke above them, and none of it was placed.
   const raw = p.raw ?? indexed(Float32Array, pw * ph, k => marks[4 * k + 3] / 255)
   const seen = new Uint8Array(pw * ph), dropped = new Float32Array(pw * ph)
@@ -277,7 +277,7 @@ function graphicPatch(image, found) {
       }
     }
     // At a side: a bit of a band or a sleeve's stripe there, or a band right across; not a big graphic the
-    // front's box was cut narrower than (to its chart's width: the Knicks letters reach its sides).
+    // front's box was cut narrower than (to its chart's width: the sweater's letters reach its sides).
     const wide = (x1 - x0 + 1) / pw, tall = (y1 - y0 + 1) / ph
     if (ends || (sides && (wide < 0.3 || (wide > 0.9 && tall < 0.2)))) for (const k of part) dropped[k] = 1
   }
@@ -286,7 +286,7 @@ function graphicPatch(image, found) {
   const on = new Float32Array(pw * ph)
   for (let k = 0; k < pw * ph; k++) on[k] = marks[4 * k + 3] > 64 && !(off[k] > 0.001) ? 1 : 0
   if (!on.some(v => v > 0)) return null
-  // With the thin lines beside it (rules under a box of lettering: Made Some's Jamaica tee), which the
+  // With the thin lines beside it (rules under a box of lettering, as on a souvenir tee), which the
   // reading leaves out as seams: left in the photo under it, they were laid on as a band right across.
   {
     let x0 = pw, x1 = -1, y0 = ph, y1 = -1
@@ -482,7 +482,7 @@ function allOverTile(print) {
 // cloth's colour at each row from the shoulders to the hem (to lay on the sleeves and back by height, so
 // the stripes meet at the seams).
 // A front the ordinary reading finds no print on is read again for a tonal graphic (print.tonal: grey
-// embroidery on oatmeal, Kith's Armani crewneck), told from the cloth by the cloth beside it rather than by
+// embroidery on an oatmeal crewneck), told from the cloth by the cloth beside it rather than by
 // the cloth's colour; a front with an ordinary print isn't (the cloth round it has no faint marks to find).
 export function findPrint(data, w, h, shape = null, guesses = {}) {
   const plain = readFront(data, w, h, shape, guesses, false)
@@ -563,7 +563,7 @@ function readFront(data, w, h, shape, { hood: hoodGuess = true, patterns = true,
   const pw = x1 - x0 + 1, ph = tall
   const alpha = new Float32Array(pw * ph)
   // Read for a tonal graphic, the cloth's colour round each point too (the front's Lab blurred wide, about a
-  // tenth of it across): a tonal graphic (grey embroidery on oatmeal, Kith's Armani crewneck: 9 darker, 9 off
+  // tenth of it across): a tonal graphic (grey embroidery on an oatmeal crewneck: 9 darker, 9 off
   // in chroma, under the thresholds above) stands off the cloth beside it where a fold's shading, which
   // drifts, doesn't.
   // (Over the cloth that's near its own colour only: a bold print tints the blur round it, and the plain
@@ -732,7 +732,7 @@ function readFront(data, w, h, shape, { hood: hoodGuess = true, patterns = true,
   // 5 cm too high).
   // Under a hood, the shoulders come out from behind it a little below their high points, which the hood
   // hides: about HOOD_DROP of the length (the hood's edges meet at the front about 3 cm below the shoulder
-  // line in Kith's photos, and a hoodie's neck is cut about 8 cm deep; laid from the high points, a chest
+  // line in a shop's flat photos, and a hoodie's neck is cut about 8 cm deep; laid from the high points, a chest
   // print met the neckline).
   let collarTop = hood ? top - Math.round(((bottom - top) * HOOD_DROP) / (1 - HOOD_DROP)) : top
   if (!hood) while (collarTop > 0 && rows.rowMax[collarTop - 1] - rows.rowMin[collarTop - 1] >= Math.max(3, widest * 0.12)) collarTop--
@@ -758,8 +758,8 @@ function readFront(data, w, h, shape, { hood: hoodGuess = true, patterns = true,
 // through the neck of a render, isn't the graphic.
 // Whether a front is mottled all over in colours near its own (see findPrint): in each of a 3 by 3 grid over
 // it, at least MOTTLED_CELL of the cloth is more than MOTTLED_GAP (Lab) from its commonest colour, and
-// MOTTLED_ALL over the whole front. Kith's Daily Paper camo hoodie is 0.31 or more in every cell; of 15 plain
-// Kith tops (tmp/kith), the nearest, a black polo's shine, is 0.11 in its emptiest.
+// MOTTLED_ALL over the whole front. A camo hoodie is 0.31 or more in every cell; of 15 plain
+// shop tops, the nearest, a black polo's shine, is 0.11 in its emptiest.
 // inside(k): whether point k of the front (pw by ph) is cloth; at(k): its index in the photo's lab.
 const MOTTLED_GAP = 12, MOTTLED_CELL = 0.25, MOTTLED_ALL = 0.33
 export function mottled(lab, baseLab, pw, ph, inside, at) {
@@ -1018,7 +1018,7 @@ export function sleevePrint(data, lab, mask, w, h, front, rows, baseLab, way) {
   return { data: out, width: SLEEVE_ACROSS, height: SLEEVE_ALONG, coverage, wrap, cuff }
 }
 // The share of a sleeve another colour takes for the sleeve to be that colour all round, not a graphic on the
-// side the photo saw (the Ksubi layered tee's grey lower sleeves read 0.33 from the front; a big graphic down
+// side the photo saw (a layered tee's grey lower sleeves read 0.33 from the front; a big graphic down
 // a sleeve about 0.1).
 const SLEEVE_WRAP = 0.25
 
@@ -1244,7 +1244,7 @@ export function garmentRows(mask, w, h, { hood: hoodGuess = true } = {}) {
   let crown = 0, pinched = false
   for (const y of above) { if (width(y) < crown * 0.92) { pinched = true; break } crown = Math.max(crown, width(y)) }
   // Or the shoulders leap out from below it, a good way down (a raglan hoodie's hood falls straight to its
-  // shoulders, no neck to it: Kith's women's hoodies, their hood read as the front's top and a chest label
+  // shoulders, no neck to it: women's hoodies photographed flat, their hood read as the front's top and a chest label
   // laid at the neck). A T-shirt's collar and shoulders above its sleeves' leap are a few rows only.
   const step = Math.max(2, Math.round(0.03 * (last - first)))
   let leapFrom = -1
@@ -2071,7 +2071,7 @@ function withAll(cut, model, w, h) {
 }
 
 // Whether a shoe's side photo needs the model's outline: the colour cut-out is unsure of it when the shoe's
-// own colour is near the backdrop's (a white or cream shoe on Kith's off-white), so the flood from the frame's
+// own colour is near the backdrop's (a white or cream shoe on an off-white backdrop), so the flood from the frame's
 // edges runs into its panels. { rough: the cut-out's mask, weak } or null when no shoe stands out at all.
 export function shoeCutWeak(data, w, h) {
   const cut = cutOut(data, w, h, SHOE_LEAST)

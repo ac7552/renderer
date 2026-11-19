@@ -14,7 +14,7 @@
 // From three readings, any of which can be missing: what the shop says the photo is (its alt text and file
 // name), what's measured in it (print.js's photoTraits: does the garment stand clear of a plain backdrop, is
 // there skin, is it words on a label), and which of a few labelled example photos it's most like to DINOv2
-// (likeness.js's photoSummary; the examples, from the Kith sample of 7 November, in photo_role_examples.js).
+// (likeness.js's photoSummary; the examples in photo_role_examples.js, which the renderer leaves empty).
 // A wrong guess in the photo tray is changed by hand; a photo whose role was set by hand keeps it.
 
 import { EXAMPLES } from "lib/garments/photo_role_examples"
@@ -262,7 +262,7 @@ export function pickPhotos(read) {
   }
 }
 
-// Backs in order: the ones called backs before later fronts (Kith: front, model, back, details).
+// Backs in order: the ones called backs before later fronts (a shop's usual order: front, model, back, details).
 function order(read, i) {
   return (read[i].role === "flat_back" ? 0 : 100) + i
 }

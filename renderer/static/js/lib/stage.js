@@ -140,8 +140,8 @@ const BANK_ON = typeof location === "undefined" || new URLSearchParams(location.
 // The store's photographs laid on a top's cloth point for point (redrape.js); ?redrape=off does without.
 const REDRAPE_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("redrape") !== "off"
 // Metering: a camera meters on its subject, and a shop photographs its garment well exposed; the stage's light
-// is fixed, so cloth given the photo's colour came out under it darker and warmer than the photo (Kith's
-// Giorgio Armani crewneck: a third of a stop under, oatmeal drawn khaki). Once a garment is draped and shown,
+// is fixed, so cloth given the photo's colour came out under it darker and warmer than the photo (an
+// oatmeal crewneck: a third of a stop under, oatmeal drawn khaki). Once a garment is draped and shown,
 // it's drawn alone (lookShot), the middle colour of its cloth read, and its material given the per-channel
 // gain (linear light) that brings that to the photo's cloth colour (item.photoCloth), a few passes over
 // (the tone curve isn't linear). ?meter=off leaves it.

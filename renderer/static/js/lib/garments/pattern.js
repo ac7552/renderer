@@ -28,7 +28,7 @@ export const STYLES = {
   shortshirt: { sleeve: "short", collar: "shirtstand", cuffs: null, hem: null, fabric: "twill", ease: 18, length: 0.4, closure: "buttons" },
   coat: { sleeve: "long", collar: "stand", cuffs: null, hem: null, fabric: "wool", ease: 20, length: 0.55, closure: "buttons" },
   // A blazer (a tailored jacket): buttoned down a deep V, its collar turned down over it as lapels, cut to the
-  // hip. Draped as the rest are (step 7 of the plan): drawn from the old suit model, Kith's soft blazers came
+  // hip. Draped as the rest are (step 7 of the plan): drawn from the old suit model, soft unstructured blazers came
   // with its shirt and tie under them.
   tailored: { sleeve: "long", collar: "shirtstand", cuffs: null, hem: null, fabric: "wool", ease: 12, length: 0.42, closure: "buttons", neck: 22 },
   // A polo: a knit collar, a short buttoned placket, banded sleeves.

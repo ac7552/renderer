@@ -18,7 +18,7 @@ export { yarnPitch }
 // Yarn pitch per surface (mm): how far apart the knit's wales or the weave's threads are, which sets the
 // close-up's scale when its own pitch can be read.
 const YARN_MM = { jersey: 0.9, fleece: 1.1, rib: 1.4, twill: 0.7, denim: 0.8, plain: 0.5, fine: 0.4, knit: 2.2, grain: 1, ripstop: 1.2, felt: 1, smooth: 0.5 }
-// The photo's width on the cloth when its pitch can't be read (cm): Kith's close-ups are about 8 to 12 cm.
+// The photo's width on the cloth when its pitch can't be read (cm): shops' close-ups are usually about 8 to 12 cm.
 const DEFAULT_WIDTH_CM = 10
 // The close-up's working size (texels square).
 const SIZE = 512
@@ -40,7 +40,7 @@ export async function prepareCloseup(src, surface = "jersey") {
   const { data } = pixels
   // Lighting evened: each channel divided by its blur (a box blur, three passes, of a thirty-second of the
   // photo: wider than the yarn and the heather's speckle, which stay; narrow enough to follow a fold's
-  // shading, which a wider one leaves in as bands across the cloth: Kith's Armani close-up's soft folds stayed
+  // shading, which a wider one leaves in as bands across the cloth: an oatmeal knit close-up's soft folds stayed
   // at two-thirds of their contrast at a twelfth), scaled back to the photo's mean.
   const n = SIZE * SIZE
   const mean = [0, 0, 0]

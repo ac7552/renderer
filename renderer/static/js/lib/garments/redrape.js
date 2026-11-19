@@ -142,7 +142,7 @@ export function clothMask(data, w, h) {
     for (let y = first; y <= hookEnd; y++) if (widths[y]) narrow.push(widths[y])
     // A hook is a wire or a hook of plastic, a few percent of the garment across; a hood's crown narrows to
     // nothing at its very top but is a fifth of the garment across a little below. (A hanger's own shoulders
-    // below its hook can make the rows broad on the whole, a crewneck on Kith's black hangers read as a hood:
+    // below its hook can make the rows broad on the whole, a crewneck on a black hanger read as a hood:
     // a wire over the top third of them is a hook.)
     const wire = median(narrow.slice(0, Math.max(1, Math.round(narrow.length / 3)))) < widest * 0.05
     const broad = !wire && median([...narrow]) >= widest * 0.1
@@ -464,7 +464,7 @@ export function collarColour(photo) {
   return "#" + samples.map(v => median(v).toString(16).padStart(2, "0")).join("")
 }
 
-// A pixel of the black hanger a light garment is photographed on (Kith's), at its collar: near black and
+// A pixel of the black hanger a light garment is photographed on (as some shops use), at its collar: near black and
 // grey, on cloth far lighter. The collar took its colour, a white polo's drawn black.
 function hangerLike(r, g, b, cloth) {
   if (!cloth || cloth[0] + cloth[1] + cloth[2] < 330) return false
@@ -620,7 +620,7 @@ export async function loadPhotoForRedrape(src, size = 2000, { labels = true, kin
 
 // A hood's drawcords in a photo of the front, painted out with the cloth either side of them: laid on point
 // for point they aren't cloth, and the drape stretched them across the chest and shoulders in white bands
-// (Kith's Daily Paper camo zip hoodie, its cream cords). A cord: pixels far lighter or darker than nearly all
+// (a camo zip hoodie's cream cords). A cord: pixels far lighter or darker than nearly all
 // of the cloth (beyond its 2nd to 98th percentiles by CORD_APART, from the cloth away from the middle), in
 // one thin upright run (at least 6% of the garment long and three times as long as it's wide) near the
 // middle, from below the hood down to three-quarters of the way; one that runs on to there is the zip.
@@ -745,7 +745,7 @@ function patchesOf(grid, w, h) {
 }
 
 // The cloth's rim in a photo: the band just inside its outline whose colour leans from the cloth's toward
-// the backdrop's (bg) by more than RIM_LEAN of the way (Kith's &Kin sweatpants: half the way at the
+// the backdrop's (bg) by more than RIM_LEAN of the way (a pair of light sweatpants: half the way at the
 // outline, still a tenth ten pixels in, more down the side the light came from and at the hem; a black
 // tee's, a quarter at the outline, nothing a pixel in), as wide as it is there, at most RIM_MOST of the
 // photo across: a pixel is in it when its lean (over the pixels round it, so a light thread of a
@@ -845,8 +845,8 @@ function cutAtWaist(found, w, h, part) {
 
 // Whether a photo shows someone: skin across the top of the figure (a face, a neck), which a garment laid
 // out or hung never has (a tan print on a tee is skin-coloured too, but lower down), and far more of it there
-// than over the clothes below. A print in tans all over (a camo) is as "skin" on a hood as on the body: Kith's
-// Daily Paper camo zip hoodie was taken for someone wearing it, its tan patches cut out as skin, and the
+// than over the clothes below. A print in tans all over (a camo) is as "skin" on a hood as on the body: a
+// camo zip hoodie was taken for someone wearing it, its tan patches cut out as skin, and the
 // photo stretched over what was left in streaks.
 function faceAtTop(data, w, h) {
   const person = garmentMask(data, w, h)?.mask
@@ -1006,7 +1006,7 @@ export function guardForeign(top, uv, photos) {
 // Where a hooded top's shoulders are on its photo, as a row from the garment's top (0 when it can't tell),
 // from its rows' widths (widths[y], the garment's extent on each row from the top down; H rows): where the
 // width last leaps out over the top 45%, from the hood's to the shoulders' (a hood stands narrower than the
-// shoulders it's sewn to). Not the first row as wide as most of the chest: a hood can be (Kith's zip hoodie
+// shoulders it's sewn to). Not the first row as wide as most of the chest: a hood can be (a zip hoodie
 // with its plaid lining, laid out with its hood spread), and its middle was taken for the shoulders, the
 // body's top laid on the hood's lining.
 export function shoulderRow(widths, H) {

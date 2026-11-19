@@ -5,7 +5,7 @@
 // each row's share of the way across the photo's leg carried to the same share across the cloth's. That suits
 // a wash or a fade, but tears a word: each row is shifted its own way, and lettering down the outside of a leg
 // sits where a flat photo squeezes the leg most (its fold) and where the photo of the back shows the same
-// lettering again. Kith's Essentials MLB Lounge Sweatpant came out as torn, doubled letters.
+// lettering again. A lounge sweatpant with a lettered leg came out as torn, doubled letters.
 //
 // So each graphic is found in the photo (findLegPrints: marks far from the cloth's colour, joined into words),
 // painted out of the photo the legs take (cleanPixels, so the torn copy isn't drawn under it), and laid on by

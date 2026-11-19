@@ -67,35 +67,35 @@ test("the garment keeps the first photo of each role, and a front stands in when
 
 test("the shop's words say what a photo is from how it's described, not from the garment's parts", () => {
   const role = (alt, src = "x.jpg", options = {}) => wordsRole({ alt, src }, options)
-  // Kith's: a hanger shot, a model, the back, a close-up. "Snap front" and "zip front" are parts, not a view.
+  // One shop's set: a hanger shot, a model, the back, a close-up. "Snap front" and "zip front" are parts, not a view.
   assert.ok(role("Dark indigo cotton denim jacket with a high funnel collar, snap front placket, and flap side pockets, shown flat on a grey background.").flat_front > 0)
-  const model = role("Man wearing a dark indigo Kith Darius denim jacket with a high funnel collar, open front showing a red quilted liner.")
+  const model = role("Man wearing a dark indigo Sample Label denim jacket with a high funnel collar, open front showing a red quilted liner.")
   assert.equal(model.on_model, 1)
   assert.equal(model.flat_front, undefined)
-  assert.ok(role("Back view of a dark indigo cotton denim Kith Darius jacket on a hanger, with high collar, long sleeves and vertical back seam.").flat_back >= 0.9)
+  assert.ok(role("Back view of a dark indigo cotton denim Sample Label jacket on a hanger, with high collar, long sleeves and vertical back seam.").flat_back >= 0.9)
   assert.equal(role("Close-up of a deep red ribbed knit cardigan showing textured lambswool and two dark metal woven-look buttons along the front edge.").closeup, 1)
-  assert.equal(role("Model in a navy Kith for the New York Knicks crewneck sweater with a large cream and blue NY letter design.").on_model, 1)
-  assert.equal(role("Woman with short dark hair wearing a cropped burgundy Kith Meika leather jacket").on_model, 1)
-  assert.ok(role("Rear view of the Rick Owens Poiret Coat in carbone wool blend").flat_back > 0)
-  assert.ok(role("Navy Stone Island short hooded parka in crinkled nylon, front view showing the two-way zip").flat_front > 0)
-  // A brand's name isn't a person: "Kith Women", "Men's".
-  assert.equal(role("Kith Women Harten aviator sweater jacket in black chunky knit").on_model, undefined)
+  assert.equal(role("Model in a navy Sample Label crewneck sweater with a large cream and blue letter design.").on_model, 1)
+  assert.equal(role("Woman with short dark hair wearing a cropped burgundy Sample Label leather jacket").on_model, 1)
+  assert.ok(role("Rear view of the Sample House long coat in charcoal wool blend").flat_back > 0)
+  assert.ok(role("Navy Sample Goods short hooded parka in crinkled nylon, front view showing the two-way zip").flat_front > 0)
+  // A brand's name isn't a person: "Sample Label Women", "Men's".
+  assert.equal(role("Sample Label Women aviator sweater jacket in black chunky knit").on_model, undefined)
   assert.equal(role("Men's navy crewneck sweater laid flat").on_model, undefined)
   // A back pocket is a part: laid flat says it's on its own, not which way round.
   const pocket = role("Black jeans with a back pocket patch, laid flat")
   assert.equal(pocket.flat_back, pocket.flat_front)
   // A box is no garment.
-  assert.ok(role("Kith gift box with a window showing folded white, black, and heather grey crewneck undershirts").other > 0)
+  assert.ok(role("Sample Label gift box with a window showing folded white, black, and heather grey crewneck undershirts").other > 0)
 })
 
 test("a file's name is a hint, unless every photo of the listing has the word", () => {
   const files = ["A-FRONT.jpg", "A-BACK.jpg", "A-DETAIL-1.jpg"]
   assert.ok(wordsRole({ src: files[1] }, { others: files }).flat_back > 0)
   assert.ok(wordsRole({ src: files[2] }, { others: files }).closeup > 0)
-  // Kith names every photo "…-Detail": it says nothing.
-  const kith = ["K-Detail.jpg", "K-Detail_9ad34ef2-c392-4424-a6e2-73d3b2e24ed6.jpg", "K-Detail_0834ea49-e110-4233-828d-a600c60db149.jpg"]
-  assert.equal(wordsRole({ src: kith[1] }, { others: kith }).closeup, undefined)
-  assert.equal(wordsRole({ src: kith[0] }, { others: kith.slice(0, 1) }).closeup, undefined)
+  // One shop names every photo "…-Detail": it says nothing.
+  const details = ["K-Detail.jpg", "K-Detail_9ad34ef2-c392-4424-a6e2-73d3b2e24ed6.jpg", "K-Detail_0834ea49-e110-4233-828d-a600c60db149.jpg"]
+  assert.equal(wordsRole({ src: details[1] }, { others: details }).closeup, undefined)
+  assert.equal(wordsRole({ src: details[0] }, { others: details.slice(0, 1) }).closeup, undefined)
 })
 
 test("the words outweigh a measurement that misreads (a tan plaid as skin), and a close-up never fronts", () => {

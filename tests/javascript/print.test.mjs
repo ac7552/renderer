@@ -42,7 +42,7 @@ test("a plain garment has no print", () => {
 })
 
 // A made-up oatmeal sweatshirt with grey embroidery on its chest (three bars, like an eagle's wings), as
-// Kith's Armani crewneck: off the cloth by about 9 to 11 in lightness and in chroma, under the ordinary
+// An oatmeal crewneck with tonal embroidery: off the cloth by about 9 to 11 in lightness and in chroma, under the ordinary
 // thresholds, so it's found only by the cloth beside it. strip: a thin grey line down the middle instead (a
 // placket), which isn't a graphic.
 function tonalPhoto({ graphic = true, strip = false } = {}) {
@@ -212,7 +212,7 @@ test("lays a pants photo on its cloth: the front from the photo, the wearer's le
   assert.ok(off.length < by("front_L").length * 0.02, `${off.length} front points off the garment`)
 })
 
-// A layered long-sleeve tee: a navy body with long grey sleeves hanging beside it (as Ksubi's is
+// A layered long-sleeve tee: a navy body with long grey sleeves hanging beside it (as one shop's is
 // photographed), and a small patch on a sleeve that's only a graphic.
 function layered({ sleeve = [150, 150, 156], patch = false } = {}) {
   const w = 240, h = 260, data = new Uint8ClampedArray(4 * w * h)
@@ -242,7 +242,7 @@ test("sleeves another colour all round are wrapped round, with their cuffs' colo
 })
 
 // A navy crewneck on a hanger, its sleeves folded behind it, with the backdrop's soft shadow down its left side
-// and under its hem (as Kith's Needlepoint Box Logo Nelson Crewneck is photographed).
+// and under its hem (as a needlepoint box-logo crewneck was photographed).
 function shadowed() {
   const w = 240, h = 260, data = new Uint8ClampedArray(4 * w * h)
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -850,7 +850,7 @@ test("a size label in the neck isn't print on the front", () => {
 
 test("three stripes side by side over each shoulder stay on the front; one diagonal line doesn't", () => {
   // A black jersey with a red word on its chest and, over each shoulder, `count` red stripes slanting down
-  // from the neck toward the sleeves (as on the adidas x Willy Chavarria jersey).
+  // from the neck toward the sleeves (as on a football jersey).
   const w = 240, h = 240
   const make = count => {
     const data = new Uint8ClampedArray(4 * w * h)

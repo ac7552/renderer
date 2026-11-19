@@ -221,9 +221,9 @@ def test_pants_made_loose_on_purpose_are_picked_by_the_waist_their_roomy_seat_as
     assert "meant to be" in seat.note
 
     # French sizes 38 to 46 with no chart (see garment_import's european_waists): the 44 (a 34 in waist), not the smallest.
-    loewe = letters(["38", "40", "42", "44", "46"], [[*inches(w), rnd(w * 2.54 + 28, 1), 81, 40] for w in range(28, 37, 2)],
+    baggy = letters(["38", "40", "42", "44", "46"], [[*inches(w), rnd(w * 2.54 + 28, 1), 81, 40] for w in range(28, 37, 2)],
                     ["waist", "seat", "inseam", "leg_opening"])
-    assert fit.rank(MAN, loewe, "regular", "trousers", style="jeans", details={"fit": "loose"})[0].size == "44"
+    assert fit.rank(MAN, baggy, "regular", "trousers", style="jeans", details={"fit": "loose"})[0].size == "44"
 
     # A pleated pant: elastic, its relaxed waist 77 cm in a 44 (4 cm a size), 124 over the hip.
     pleated = letters(["44", "46", "48", "50", "52"], [[77 + 4 * i, 124 + 4 * i, 72, 40] for i in range(5)], ["waist", "seat", "inseam", "leg_opening"])

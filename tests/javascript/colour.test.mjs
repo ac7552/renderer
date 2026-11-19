@@ -14,7 +14,7 @@ test("sRGB to linear light", () => {
 
 test("deltaE: none for the same colour, small for a shade apart, large across a hue", () => {
   assert.equal(deltaE([212, 203, 185], [212, 203, 185]), 0)
-  // Kith's Armani crewneck: its photo's cloth against the stage's rendering of it before metering.
+  // An oatmeal crewneck: its photo's cloth against the stage's rendering of it before metering.
   const before = deltaE([212, 203, 185], [162, 150, 134])
   assert.ok(before > 15, `${before}`)
   assert.ok(deltaE([200, 200, 200], [204, 204, 204]) < 2.5)

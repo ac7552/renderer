@@ -115,7 +115,7 @@ def truncate(value, limit: int, omission: str = "...") -> str:
 
 
 def titleize(value) -> str:
-    """Words as a title: "zegna cashmere cardigan" is "Zegna Cashmere Cardigan"."""
+    """Words as a title: "sample label cashmere cardigan" is "Sample Label Cashmere Cardigan"."""
     words = text(value)
     words = re.sub(r"([A-Z\d]+)([A-Z][a-z])", r"\1_\2", words)
     words = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", words)

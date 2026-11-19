@@ -2049,7 +2049,7 @@ function photoSize(chart) {
   return { chest: middle.chest, length: middle.length }
 }
 
-// Many shops run on Shopify, which answers a product's details as small public JSON. Some big ones (Kith)
+// Many shops run on Shopify, which answers a product's details as small public JSON. Some big ones
 // answer a browser at once but make an app wait, so this browser reads them and hands them to Fitroom: the
 // product, its shop's Shopify name, and its Kiwi Sizing chart when it has one. Null for other links, or when
 // the shop doesn't answer quickly; Fitroom then reads the link itself.
@@ -2077,8 +2077,8 @@ export async function readShop(link) {
   // sole...), so a photo is only read as what it is. The front: the first of the garment on its own (for a
   // shoe, from the side), else one of it worn (photoRole "on_model": its colour and parts are read, its
   // outline isn't).
-  // (Shoes by the shop's type and the title's words, or its tags, as the server sorts them: Kith files heels,
-  // flats and derbies under those names, and a Nike Air Max under no type at all, but tags every one footwear.)
+  // (Shoes by the shop's type and the title's words, or its tags, as the server sorts them: a shop may file heels,
+  // flats and derbies under those names, and a running shoe under no type at all, but tag every one footwear.)
   // (A title's shoe word in a garment's listing is the cloth's or the style's: an Oxford shirt.)
   const shoe = SHOE_WORDS.test(product_type ?? "") || [tags].flat().join(",").split(/\s*,\s*/).some(tag => SHOE_TAGS.has(tag.toLowerCase())) ||
     (SHOE_WORDS.test(title) && !APPAREL_WORDS.test(`${product_type} ${title}`))
@@ -2271,8 +2271,8 @@ async function readBackPhoto(listing, candidates, { shape, bottomShape, front, w
 
 // The shop's close-up of the cloth ({ photo, index }): the first of the close-ups (photo_roles.js) that is nearly all the
 // cloth's own colour (traits.plain: not a close-up of a graphic, which would be laid on as the fabric;
-// Kith's Armani crewneck's of its embroidery is 0.92), or one its words call a close-up of the cloth that's
-// mostly its colour (Kith's Armani close-up's bright fold ridges read as backdrop round a piece of its cloth,
+// an oatmeal crewneck's of its embroidery is 0.92), or one its words call a close-up of the cloth that's
+// mostly its colour (an oatmeal knit close-up's bright fold ridges read as backdrop round a piece of its cloth,
 // beige in shadow as skin: 0.84 its colour, the piece 0.16 of the frame).
 const CLOSEUP_PLAIN = 0.95, NAMED_CLOSEUP_PLAIN = 0.8
 const CLOSEUP_WORDS = /\b(?:close[- ]?ups?|fabrics?|textures?|swatch(?:es)?|material|weave|knit|twill|jersey)\b/i

@@ -1,4 +1,4 @@
-// The shop's photo of a pair at an angle, laid on the 3D shoe. Kith (and most shops) never photograph a shoe
+// The shop's photo of a pair at an angle, laid on the 3D shoe. Most shops never photograph a shoe
 // square from the front; their second photo is nearly always the pair at three-quarters, which shows what the
 // side photo can't: the toe box, the laces and eyelets, the tongue, the welt round the toe. The camera it was
 // taken from, and where the nearer shoe of the two stands in it, are found by drawing the 3D shoe's outline

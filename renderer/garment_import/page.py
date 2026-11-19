@@ -256,7 +256,7 @@ class Page:
             types = ruby_array(node.get("@type"))
             if "Product" in types or "ProductGroup" in types:
                 return node
-            # A product with its type left off (Uniqlo's): a name with offers, or with a SKU and images.
+            # A product with its type left off (as some big shops' are): a name with offers, or with a SKU and images.
             if blank(node.get("@type")) and not blank(node.get("name")) and (not blank(node.get("offers")) or (not blank(node.get("sku")) and not blank(node.get("image")))):
                 return node
             if node.get("@graph"):

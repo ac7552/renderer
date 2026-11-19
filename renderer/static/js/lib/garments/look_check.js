@@ -35,7 +35,7 @@ export const BARS = {
   // different garment rarely above 0.3.
   likeness: 0.35,
   // A dress's flare (its hem's width over its hips') on the render against its photo's, as worn (see
-  // WORN_FLARE): from 1/1.15 to 1.3 times. Renders of twelve Kith dresses that hang as their photos show
+  // WORN_FLARE): from 1/1.15 to 1.3 times. Renders of twelve shop dresses that hang as their photos show
   // read 0.86 to 1.11 (the Desma's and the Saja's, which flare a little less than their photos, 0.86); the
   // Desma drawn as a tube, 0.77. Too little flare is what goes wrong; a little more is held less tightly.
   flare: [1 / 1.15, 1.3]

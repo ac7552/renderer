@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 const { draftTop } = await import("lib/garments/pattern")
 const { draftBottoms } = await import("lib/garments/pants")
 
-// The example woman, and a size M from a chart like the Kith Desma's (cm).
+// The example woman, and a size M from a chart like a suiting mini dress's (cm).
 const body = { chest: 91.5, waist: 74, hips: 100, shoulders: 39.5, arm: 58, height: 165, neck: 33, armpit: 20.8, bicep: 26, wrist: 15 }
 const size = { name: "M", chest: 87.4, waist: 70.3, hips: 95, length: 80 }
 const edge = (pattern, panel, name) => pattern.panels[panel].edges.find(e => e.name === name).points
@@ -94,7 +94,7 @@ test("a side slit leaves the side seam open from the hem up; one slit only on th
 })
 
 test("a strapless dress grips at its top edge and, widening to its hem in its photo, doesn't bulge at the hips", () => {
-  // GUIZIO's Cannes mini: slim, a bandeau top, its usual size S on the example woman (85 cm bust, 89 cm hips).
+  // A bandeau mini: slim, a bandeau top, its usual size S on the example woman (85 cm bust, 89 cm hips).
   const her = { chest: 85, waist: 63, hips: 89, shoulders: 38.5, arm: 58, height: 165, armpit: 20 }
   const s = { name: "S", chest: 89, waist: 75, hips: 101, length: 61 }
   const cut = { sleeves: "strapless", neckline: "scoop", length: "mini", fit: "slim", stretch: false, fabric: "silk",

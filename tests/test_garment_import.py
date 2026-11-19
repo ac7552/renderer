@@ -116,7 +116,7 @@ def test_a_charts_impossible_numbers_are_left_out_to_be_estimated():
 
 
 def test_pants_named_for_their_cloth_are_pants():
-    html = page("navy-suit-jacket").replace("Navy Wool Suit Jacket", "Tallis Waist Strap Suiting Trouser - Black").replace("Suit jackets", "Trousers")
+    html = page("navy-suit-jacket").replace("Navy Wool Suit Jacket", "Sample House Waist Strap Suiting Trouser - Black").replace("Suit jackets", "Trousers")
     assert GarmentImport().from_page(html, source_url="x")["garment"] == "trousers"
 
 
@@ -156,7 +156,7 @@ def test_a_romper_is_a_tank_tucked_into_shorts_a_jumpsuit_a_top_tucked_into_pant
     def usual(part, kind):
         return importer.usual_for(kind, importer.top_style_of(part), part)
 
-    romper = importer.one_piece({"name": "Kith Women Aire Plunge Cross Back Romper - Legacy", "category": "Rompers", "description": "Elasticated straps",
+    romper = importer.one_piece({"name": "Sample Label Women Aria Plunge Cross Back Romper - Cream", "category": "Rompers", "description": "Elasticated straps",
                                  "sizes": ["XS", "S", "M", "L"], "women": True}, "x", usual)
     assert values_at(romper, "garment", "style") == ["onepiece", "romper"]
     assert [romper["parts"]["top"]["style"], romper["parts"]["trousers"]["style"]] == ["tank", "shorts"]
@@ -182,13 +182,13 @@ def test_bags_are_read_as_bags_each_as_its_worn_at_the_size_its_listing_gives():
     def kind(name, category):
         return importer.kind_of({"name": name, "category": category, "sorted": True})
 
-    assert kind("Arc'teryx Konseal 15 Backpack - Purple", "Backpacks") == "bag"
-    assert kind("Giorgio Armani & Kith Tote Bag - Nero", "Tote Bags") == "bag"
-    assert kind("Arc'teryx Mantis 2 Waist Pack - Bracken", "Mini Bags") == "bag"
-    assert kind("Giorgio Armani & Kith Belt Bag - Tan", "Belts") == "bag"
-    assert kind("Anderson's Leather Black Belt - Black", "Belts") == "belt"
-    for name, category in [("Kith for TUMI Carry-On - Astro Ombre", "Bags"), ("Kith for TUMI Sunglass Case - Majestic Ombre", "Bags"),
-                           ("Kith Leather Wallet - Black", "Small Leather Goods")]:
+    assert kind("Sample Works Trail 15 Backpack - Purple", "Backpacks") == "bag"
+    assert kind("Sample House Tote Bag - Black", "Tote Bags") == "bag"
+    assert kind("Sample Works Trail 2 Waist Pack - Olive", "Mini Bags") == "bag"
+    assert kind("Sample House Belt Bag - Tan", "Belts") == "bag"
+    assert kind("Sample Goods Leather Black Belt - Black", "Belts") == "belt"
+    for name, category in [("Sample Label Carry-On - Blue Ombre", "Bags"), ("Sample Label Sunglass Case - Purple Ombre", "Bags"),
+                           ("Sample Label Leather Wallet - Black", "Small Leather Goods")]:
         with pytest.raises(gi.Error):
             kind(name, category)
 
@@ -197,22 +197,22 @@ def test_bags_are_read_as_bags_each_as_its_worn_at_the_size_its_listing_gives():
     def read(name, category, description=None):
         return importer.accessory({"name": name, "category": category, "description": description, "sizes": ["Default Title"]}, "bag", None)
 
-    pack = read("Arc'teryx Konseal 15 Backpack - Purple", "Backpacks", 'Printed nylon blend. Dimensions: L 17.3" x W 9.8" x D 8.2"')
+    pack = read("Sample Works Trail 15 Backpack - Purple", "Backpacks", 'Printed nylon blend. Dimensions: L 17.3" x W 9.8" x D 8.2"')
     assert values_at(pack, "garment", "style", "fabric") == ["bag", "backpack", "canvas"]
     assert [size["name"] for size in pack["chart"]["sizes"]] == ["One size"]
     # (A length and a width, no height: a backpack's greater is its height, marked as not sure.)
     assert pack["bag_size"] == {"height": 43.9, "depth": 20.8, "width": 24.9, "sure": False}
-    assert read("Arc'teryx Mantis 2 Waist Pack - Bracken", "Mini Bags")["style"] == "sling"
-    assert read("Giorgio Armani & Kith Belt Bag - Tan", "Belts")["style"] == "sling"
-    assert read("Kith Vintage Textured Leather Duffle Bag - Kindling", "Duffle Bags")["style"] == "duffle"
-    assert read("Giorgia Armani & Kith Mini Bag - Meteorite", "Mini Bags")["style"] == "crossbody"
-    assert read("Giorgio Armani & Kith Tote Bag - Nero", "Tote Bags")["style"] == "tote"
-    assert read("Lemaire Large Soft Game Bag - Chocolate Truffle", "Bags").get("bag_size") is None
+    assert read("Sample Works Trail 2 Waist Pack - Olive", "Mini Bags")["style"] == "sling"
+    assert read("Sample House Belt Bag - Tan", "Belts")["style"] == "sling"
+    assert read("Sample Label Vintage Textured Leather Duffle Bag - Brown", "Duffle Bags")["style"] == "duffle"
+    assert read("Sample House Mini Bag - Grey", "Mini Bags")["style"] == "crossbody"
+    assert read("Sample House Tote Bag - Black", "Tote Bags")["style"] == "tote"
+    assert read("Sample Atelier Large Soft Game Bag - Chocolate", "Bags").get("bag_size") is None
 
     # What the listing calls its own shape comes before where the shop files it.
-    assert gi.bag_style("Rick Owens Tower Runway Gemini Bag - Grape Crossbody Bags", "<li>Silhouette: Tote</li><li>Dimensions: 18 in. wide, 16 in. high</li>") == "tote"
-    assert gi.bag_style("Rick Owens Tower Runway Gemini Bag - Grape Crossbody Bags") == "crossbody"
-    assert gi.bag_style("Kith Bag - Black", "Silhouette: Backpack") == "backpack"
+    assert gi.bag_style("Sample House Tower Bag - Grape Crossbody Bags", "<li>Silhouette: Tote</li><li>Dimensions: 18 in. wide, 16 in. high</li>") == "tote"
+    assert gi.bag_style("Sample House Tower Bag - Grape Crossbody Bags") == "crossbody"
+    assert gi.bag_style("Sample Label Bag - Black", "Silhouette: Backpack") == "backpack"
 
     def size(words, style="tote"):
         return gi.bag_size(words, style=style)
@@ -232,7 +232,7 @@ def test_bags_are_read_as_bags_each_as_its_worn_at_the_size_its_listing_gives():
 def test_with_bags_off_a_bags_link_says_bags_arent_tried_on_yet():
     gi.bags = False
     with pytest.raises(gi.Error) as error:
-        GarmentImport().accessory({"name": "Kith Tote Bag - Black", "category": "Tote Bags", "sizes": []}, "bag", None)
+        GarmentImport().accessory({"name": "Sample Label Tote Bag - Black", "category": "Tote Bags", "sizes": []}, "bag", None)
     assert error.value.code == "not_supported"
     assert "can't try on bags yet" in str(error.value).lower()
 
@@ -245,12 +245,12 @@ def test_shoes_socks_and_belts_are_drawn_in_their_own_styles_with_the_shops_size
 
     assert kind("New Balance Made in UK 991v1 Luxe Suede - Cocoa", "Low Top Sneakers") == "shoes"
     assert kind("Dr. Martens Wayborne Boot Mayhem - Dark Brown", "Boots") == "shoes"
-    assert kind("Kith Classic Crew Sock - White", "Socks") == "socks"
-    assert kind("Anderson's Leather Black Belt - Black", "Belts") == "belt"
+    assert kind("Sample Label Classic Crew Sock - White", "Socks") == "socks"
+    assert kind("Sample Goods Leather Black Belt - Black", "Belts") == "belt"
     # (A belt bag is a bag, not a belt: see the bags' test.)
-    assert kind("Giorgio Armani & Kith Belt Bag - Tan", "Belts") == "bag"
+    assert kind("Sample House Belt Bag - Tan", "Belts") == "bag"
     with pytest.raises(gi.Error):
-        kind("Kith Boxer Brief - Black", "Underwear")
+        kind("Sample Label Boxer Brief - Black", "Underwear")
     # A shoe the shop files only by its tags (no type, no shoe word in the name) is still shoes, in its style.
     tagged = {"name": "Vasque Skywalk GTX - Olive / Dress Blues", "category": None, "tags": ["boot", "boots", "footwear", "mens"], "sizes": ["9", "10"]}
     assert importer.kind_of(tagged) == "shoes"
@@ -267,9 +267,9 @@ def test_shoes_socks_and_belts_are_drawn_in_their_own_styles_with_the_shops_size
     assert gi.shoe_style("Nike Air Force 1 - Chelsea Blue", "Low Top Sneakers") == "sneaker"
     assert gi.shoe_style("Converse Chuck 70", "High Top Sneakers") == "hightop"
     assert gi.shoe_style("Dr. Martens Lowell - Black / Aniline", "Derbies") == "loafer"
-    assert gi.shoe_style("Rick Owens Geobasket", None, "boots") == "boot"
+    assert gi.shoe_style("Sample House Geo", None, "boots") == "boot"
     assert gi.shoe_style("Mystery Shoe") == "sneaker"
-    assert importer.accessory({"name": "Kith Ankle Sock 3-Pack", "category": "Socks"}, "socks", "x")["style"] == "ankle"
+    assert importer.accessory({"name": "Sample Label Ankle Sock 3-Pack", "category": "Socks"}, "socks", "x")["style"] == "ankle"
     belt = importer.accessory({"name": "Leather Belt", "category": "Belts", "description": "Brass buckle", "sizes": ["Default Title"]}, "belt", "x")
     assert [belt["buckle"], [size["name"] for size in belt["chart"]["sizes"]]] == ["gold", ["One size"]]
 
@@ -285,57 +285,57 @@ def test_a_short_sleeve_shirt_is_a_button_up_with_short_sleeves_and_a_short_slee
     assert top("Camp Collar Shirt")["style"] == "shortshirt"
     assert top("Short Sleeve T-Shirt")["style"] == "tee"
     assert top("Short Sleeve Polo")["style"] == "polo"
-    # Craig Green files its tees as "Jerseys".
-    assert values_at(top("Craig Green Flatlock Short Sleeve Jersey - White", "Jerseys"), "garment", "style") == ["top", "tee"]
+    # Some shops file their tees as "Jerseys".
+    assert values_at(top("Sample Works Flatlock Short Sleeve Jersey - White", "Jerseys"), "garment", "style") == ["top", "tee"]
 
 
 def test_polos_tank_tops_sweaters_and_cardigans_are_drawn_as_themselves():
     importer = GarmentImport()
-    assert top("Kith Tilden Polo")["style"] == "polo"
-    assert top("Kith Crest Ribbed Tank")["style"] == "tank"
+    assert top("Sample Label Tide Polo")["style"] == "polo"
+    assert top("Sample Label Crest Ribbed Tank")["style"] == "tank"
     assert top("Wyona Sweater")["style"] == "sweater"
     assert top("Merino Crewneck Sweater")["style"] == "sweater"
     assert top("Mock Neck Short Sleeve Sweater")["style"] == "shortknit"
     # A turtleneck filed under "Turtlenecks", which named nothing it knew: it's a knit top.
     assert importer.kind_of({"name": "&Kin Interlock Cyrus Turtleneck - Black", "category": "Turtlenecks", "tags": ["Apparel", "apparels"]}) == "top"
     assert values_at(top("&Kin Interlock Cyrus Turtleneck - Black", "Turtlenecks"), "garment", "style") == ["top", "sweater"]
-    assert importer.style_of({"name": "Ell Denim Ford Jacket - Black", "category": "Jackets"}, "x") == "shirt"
+    assert importer.style_of({"name": "Sample Label Denim Hale Jacket - Black", "category": "Jackets"}, "x") == "shirt"
     assert importer.style_of({"name": "Japanese Denim Trucker Jacket", "category": "Jackets", "description": "Zip pocket at the chest."}, "x") == "shirt"
-    assert importer.kind_of({"name": "Willy Chavarria Bad Boy Track Jacket - Peacoat", "category": "Jackets"}) == "jacket"
-    assert importer.kind_of({"name": "Kith Women Ina II Crochet Cable Zip Track - Incognito", "category": "Sweaters"}) == "jacket"
+    assert importer.kind_of({"name": "Sample Label Night Track Jacket - Peacoat", "category": "Jackets"}) == "jacket"
+    assert importer.kind_of({"name": "Sample Label Women Isla Crochet Cable Zip Track - Charcoal", "category": "Sweaters"}) == "jacket"
     assert importer.kind_of({"name": "Merino Half-Zip Sweater", "category": "Sweaters"}) == "top"
-    assert importer.kind_of({"name": "Susanna Chow Dorothy Suede Maxi Coat - Graphite", "category": "Coats"}) == "coat"
+    assert importer.kind_of({"name": "Sample Atelier Dora Suede Maxi Coat - Graphite", "category": "Coats"}) == "coat"
     # A coat with no chart gets a coat's usual length, not a tee's.
-    coat = importer.usual_sizes("coat", "tee", {"name": "Rick Owens Poiret Coat", "sizes": ["S", "M", "L"]})
+    coat = importer.usual_sizes("coat", "tee", {"name": "Sample House Poise Coat", "sizes": ["S", "M", "L"]})
     assert next(size for size in coat.sizes if size["name"] == "M")["length"] > 90
-    assert importer.kind_of({"name": "Kith Women Aire Plunge Cross Back Romper - Legacy", "category": "Rompers"}) == "onepiece"
+    assert importer.kind_of({"name": "Sample Label Women Aria Plunge Cross Back Romper - Cream", "category": "Rompers"}) == "onepiece"
     assert importer.fabric_of({"name": "Polo", "description": "Body 1: 100% Lyocell / Body 2: 60% Viscose / 35% Nylon / 5% Cashmere"}, "top") == "cotton"
     # A cardigan is worn open over a top, as a jacket is, so a tee can go under it.
     assert values_at(top("Color-Blocked Cardigan"), "garment", "style") == ["jacket", "cardigan"]
-    assert top("Undercover Cindy Sherman Sweatshirt")["style"] == "sweatshirt"
+    assert top("Sample House Portrait Sweatshirt")["style"] == "sweatshirt"
     # A fitted rib "Crewneck Top" filed under short-sleeve tops is a T-shirt, not a sweatshirt.
-    assert top("Alexander Wang Crewneck Top with Jacquard Logo - Black", "Short Sleeve Tops")["style"] == "tee"
+    assert top("Sample House Crewneck Top with Jacquard Logo - Black", "Short Sleeve Tops")["style"] == "tee"
 
 
 def test_a_one_word_shirt_dress_is_a_dress_a_quarter_zip_a_top_and_a_bodysuit_a_top_worn_tucked_in():
-    assert values_at(top("Ksubi Devin Long Sleeve Shirtdress - Stone Lurex", "Mini Dresses"), "garment", "style") == ["top", "dress"]
-    assert values_at(top("Kith Calix Quarter Zip - Black", "Quarter Zips"), "garment", "style") == ["top", "sweatshirt"]
-    assert top("Giorgio Armani & Kith Quarter-Zip Shirt - Flint Stone", "Button Up Shirts")["style"] == "shirt"
-    suit = top("Agolde Maria Bodysuit - White", "Bodysuits",
+    assert values_at(top("Sample Goods Rhea Long Sleeve Shirtdress - Stone Lurex", "Mini Dresses"), "garment", "style") == ["top", "dress"]
+    assert values_at(top("Sample Label Cal Quarter Zip - Black", "Quarter Zips"), "garment", "style") == ["top", "sweatshirt"]
+    assert top("Sample House Quarter-Zip Shirt - Grey", "Button Up Shirts")["style"] == "shirt"
+    suit = top("Sample Goods Mae Bodysuit - White", "Bodysuits",
                description="Viscose blend Wide shoulder straps Scoop neckline Snap closure on the gusset Fitted silhouette")
     assert values_at(suit, "garment", "bodysuit") == ["top", True]
     assert suit["cut"] == {"fit": "fitted", "stretch": True}
     assert suit["style"] == "tank", "on straps"
     # (A blazer is still a jacket: only a body- or catsuit isn't a suit.)
-    assert top("Kith Women Keshi Cropped Blazer - Incognito", "Blazers")["garment"] == "jacket"
-    assert top("Kith Women Rose Polo Bodysuit - Black", "Bodysuits")["style"] == "polo"
+    assert top("Sample Label Women Kai Cropped Blazer - Charcoal", "Blazers")["garment"] == "jacket"
+    assert top("Sample Label Women Rosa Polo Bodysuit - Black", "Bodysuits")["style"] == "polo"
     # A sweater vest goes over a top, as a jacket does, drawn as a tank; a tag that's the product's own name, and a
     # "Tie-front" in it, isn't a tie.
-    assert values_at(top("Kith Boucle Heath V-Neck Sweater Vest - Nocturnal", "Vests"), "garment", "style") == ["jacket", "tank"]
-    assert GarmentImport().kind_of({"name": "Alexander Wang Tie-front Cardigan Layered V-neck Vest - Heather Grey", "category": "Vests",
-                                    "tags": ["Alexander Wang Tie-front Cardigan Layered V-neck Vest - Heather Grey", "vest"]}) == "jacket"
-    assert top("Kith Micro Waffle Tristan Henley - White", "Short Sleeve Henleys")["style"] == "tee"
-    assert top("Kith Micro Waffle Tristan Henley - White", "Long Sleeve Tees")["style"] == "longsleeve"
+    assert values_at(top("Sample Label Boucle V-Neck Sweater Vest - Navy", "Vests"), "garment", "style") == ["jacket", "tank"]
+    assert GarmentImport().kind_of({"name": "Sample House Tie-front Cardigan Layered V-neck Vest - Heather Grey", "category": "Vests",
+                                    "tags": ["Sample House Tie-front Cardigan Layered V-neck Vest - Heather Grey", "vest"]}) == "jacket"
+    assert top("Sample Label Micro Waffle Henley - White", "Short Sleeve Henleys")["style"] == "tee"
+    assert top("Sample Label Micro Waffle Henley - White", "Long Sleeve Tees")["style"] == "longsleeve"
     with pytest.raises(gi.Error) as error:
         top("Stretch Unitard", "Unitards")
     assert error.value.code == "not_supported"
@@ -348,9 +348,9 @@ def test_shorts_skirts_leggings_and_joggers_are_bottoms_in_their_own_styles():
         product = {"name": name, "category": category, "sorted": True}
         return [importer.kind_of(product), importer.bottom_style_of(product)]
 
-    assert read("Teatora Wallet Short Resort", "Shorts") == ["trousers", "shorts"]
-    assert read("Aya Muse Obra Skirt", "Mini Skirts") == ["trousers", "skirt"]
-    assert read("Kith Women Avery Tights", "Leggings") == ["trousers", "leggings"]
+    assert read("Sample Works Wallet Short Resort", "Shorts") == ["trousers", "shorts"]
+    assert read("Sample Label Dune Skirt", "Mini Skirts") == ["trousers", "skirt"]
+    assert read("Sample Label Women Ava Tights", "Leggings") == ["trousers", "leggings"]
     assert read("Loose Fit Sweatpant", "Sweatpants") == ["trousers", "joggers"]
     assert read("Maria Slim Bootcut Jean", "Jeans") == ["trousers", "jeans"]
 
@@ -458,27 +458,27 @@ def test_a_photo_the_browser_sent_is_kept_when_its_a_small_base64_data_url():
 
 def test_a_puffer_a_shrug_or_anything_the_shop_files_under_outerwear_is_worn_as_a_jacket():
     importer = GarmentImport()
-    assert importer.kind_of({"name": "Kith Women Shae Cropped Denim Puffer - Washed Black", "category": "Puffers", "tags": ["cropped", "denim", "outerwear"], "sorted": True}) == "jacket"
-    assert importer.kind_of({"name": "Kith Ivy for Wilson Women's Court Shrug - White", "category": "Outerwear", "tags": ["outerwear", "tops"], "sorted": True}) == "jacket"
+    assert importer.kind_of({"name": "Sample Label Women Shea Cropped Denim Puffer - Washed Black", "category": "Puffers", "tags": ["cropped", "denim", "outerwear"], "sorted": True}) == "jacket"
+    assert importer.kind_of({"name": "Sample Label Women's Court Shrug - White", "category": "Outerwear", "tags": ["outerwear", "tops"], "sorted": True}) == "jacket"
 
 
 def test_capri_pants_end_above_the_ankle_and_shorts_are_as_long_as_their_photo_shows():
     importer = GarmentImport()
-    capri = importer.usual_trousers({"name": "NikeSKIMS Studio Stretch Capri Legging - Dark Roast", "sizes": ["XS", "S", "M", "L", "XL"], "women": True})
+    capri = importer.usual_trousers({"name": "Sample Works Studio Stretch Capri Legging - Brown", "sizes": ["XS", "S", "M", "L", "XL"], "women": True})
     assert capri.sizes[0]["inseam"] == pytest.approx(76 * 0.72, abs=0.2)
     # A knee-length short photographed 1.9 times as long as its waist is wide: 0.78 of that over half the waist
     # round, less a men's 30 cm rise.
-    shorts = importer.usual_trousers({"name": "Barena Tarta Shorts - Brown", "sizes": ["46", "48", "50", "52", "54"],
+    shorts = importer.usual_trousers({"name": "Sample Atelier Tara Shorts - Brown", "sizes": ["46", "48", "50", "52", "54"],
                                       "bottom_shape": {"thigh": 0.66, "hem": 0.62, "rise": 0.33, "length": 1.9}})
     m = next(size for size in shorts.sizes if size["name"] == "50")
     assert m["inseam"] == pytest.approx(0.78 * 1.9 * m["waist"] / 2 - 30, abs=0.2)
     # Within 4 cm of the usual 18, the usual stands; a named inseam always does.
-    usual = importer.usual_trousers({"name": "Barena Tarta Shorts - Brown", "sizes": ["46", "48", "50", "52", "54"], "bottom_shape": {"rise": 0.9, "length": 1.45}})
+    usual = importer.usual_trousers({"name": "Sample Atelier Tara Shorts - Brown", "sizes": ["46", "48", "50", "52", "54"], "bottom_shape": {"rise": 0.9, "length": 1.45}})
     assert next(size for size in usual.sizes if size["name"] == "50")["inseam"] == 18.0
     named = importer.usual_trousers({"name": 'Gym Short 5"', "sizes": ["S", "M", "L"], "bottom_shape": {"rise": 0.9, "length": 1.9}})
     assert named.sizes[0]["inseam"] == pytest.approx(12.7, abs=0.1)
     # Pants photographed shorts are shorts.
-    assert importer.bottom_style_of({"name": "CDG Homme Men's Pant - Black", "category": "Pants", "bottom_shape": {"length": 1.62}}) == "shorts"
+    assert importer.bottom_style_of({"name": "Sample Atelier Homme Men's Pant - Black", "category": "Pants", "bottom_shape": {"length": 1.62}}) == "shorts"
     assert importer.bottom_style_of({"name": "Kiko Kostadinov Votive Trouser", "category": "Pants", "bottom_shape": {"length": 2.49}}) == "trousers"
 
 
@@ -489,9 +489,9 @@ def test_a_coats_a_tops_and_a_skirts_length_as_their_photos_show_them():
         return next(size for size in chart.sizes if size["name"] == name)["length"]
 
     # A short parka filed under coats, by its name or by its sleeves reaching its hem: a jacket's length, not a coat's.
-    parka = importer.usual_sizes("coat", None, {"name": "Stone Island Short Parka Ghost - Navy", "sizes": ["S", "M", "L"]})
+    parka = importer.usual_sizes("coat", None, {"name": "Sample Goods Short Parka - Navy", "sizes": ["S", "M", "L"]})
     pilot = importer.usual_sizes("coat", None, {"name": "Engineered Garments Pilot Twill Parka", "sizes": ["S", "M", "L"], "shape": {"sleeve_down": 1.0, "length": 0.89}})
-    long = importer.usual_sizes("coat", None, {"name": "Lemaire Double Breasted Coat", "sizes": ["S", "M", "L"], "shape": {"sleeve_down": 0.85, "length": 1.15}})
+    long = importer.usual_sizes("coat", None, {"name": "Sample Atelier Double Breasted Coat", "sizes": ["S", "M", "L"], "shape": {"sleeve_down": 0.85, "length": 1.15}})
     assert length(parka) < 75
     assert length(pilot) < 75
     assert length(long) > 90
@@ -504,37 +504,37 @@ def test_a_coats_a_tops_and_a_skirts_length_as_their_photos_show_them():
     assert length(importer.usual_sizes("top", "tee", flat), "L") > 69
     assert length(importer.usual_sizes("top", "tee", {**flat, "women": True}), "L") < 60
     # A skirt shortened to its photo, never lengthened by it.
-    midi = importer.usual_skirts({"name": "Alexander Wang Zip Front Midi Skort", "women": True, "sizes": ["S", "M", "L"],
+    midi = importer.usual_skirts({"name": "Sample House Zip Front Midi Skort", "women": True, "sizes": ["S", "M", "L"],
                                   "bottom_shape": {"skirt": True, "hips": 1.36, "hem": 1.59, "length": 1.73}})
     assert length(midi) < 60
-    mini = importer.usual_skirts({"name": "Aya Muse Obra Mini Skirt", "women": True, "sizes": ["S", "M", "L"],
+    mini = importer.usual_skirts({"name": "Sample Label Dune Mini Skirt", "women": True, "sizes": ["S", "M", "L"],
                                   "bottom_shape": {"skirt": True, "hips": 1.2, "hem": 1.2, "length": 2.4}})
     assert length(mini) < 45
     # A vest is drawn without sleeves (as a tank), a quilted one too, though it isn't worn as a sweater vest is.
-    quilted = {"name": "Kith Quilted Nylon Lorenzo Vest - Black", "category": "Vests", "description": "Quilted nylon shell"}
+    quilted = {"name": "Sample Label Quilted Nylon Vest - Black", "category": "Vests", "description": "Quilted nylon shell"}
     assert importer.vest_named(quilted)
     assert not importer.vest(quilted)
 
 
 def test_a_half_zip_or_quarter_zip_pullover_has_its_stand_collar_and_short_zip():
     assert top("vowels Fleece Quarter Zip - Black", "Sweatshirts")["cut"]["half_zip"]
-    assert not (top("Kith Williams Crewneck - Black", "Crewnecks").get("cut") or {}).get("half_zip")
+    assert not (top("Sample Label Willet Crewneck - Black", "Crewnecks").get("cut") or {}).get("half_zip")
 
 
 def test_a_quilted_lining_doesnt_make_a_jacket_a_puffer():
     importer = GarmentImport()
-    assert not importer.puffer({"name": "Mitchell & Ness Varsity Full-Snap Jacket - Blue / White", "description": "Melton wool Quilted lining Stand collar"})
-    assert importer.puffer({"name": "Moncler Down Jacket", "description": "Quilted nylon Down filling"})
-    assert not importer.puffer({"name": "Kith Quilted Flannel Boxy Collared Overshirt - Allure", "description": "Brushed cotton flannel Combo padded nylon on the front and back"})
-    assert importer.puffer({"name": "Kith Quilted Down Overshirt", "description": "Nylon Down fill"})
+    assert not importer.puffer({"name": "Sample Works Varsity Full-Snap Jacket - Blue / White", "description": "Melton wool Quilted lining Stand collar"})
+    assert importer.puffer({"name": "Sample Goods Down Jacket", "description": "Quilted nylon Down filling"})
+    assert not importer.puffer({"name": "Sample Label Quilted Flannel Boxy Collared Overshirt - Blue", "description": "Brushed cotton flannel Combo padded nylon on the front and back"})
+    assert importer.puffer({"name": "Sample Label Quilted Down Overshirt", "description": "Nylon Down fill"})
 
 
 def test_a_jacket_or_coat_with_a_hood_is_drawn_with_one_unless_the_hood_stows_away():
     importer = GarmentImport()
-    assert importer.hooded({"name": "Canada Goose Wyndham Parka - Black"})
-    assert importer.hooded({"name": "Moncler Vigiers Jacket", "description": "Shearling-effect fleece Hood Zip closure"})
-    assert not importer.hooded({"name": "Arc'teryx Beta Jacket", "description": "Stowable hood in the collar"})
-    assert not importer.hooded({"name": "Kith Bomber Jacket", "description": "Rib collar"})
+    assert importer.hooded({"name": "Sample Goods Wyn Parka - Black"})
+    assert importer.hooded({"name": "Sample Goods Vigo Jacket", "description": "Shearling-effect fleece Hood Zip closure"})
+    assert not importer.hooded({"name": "Sample Works Alpine Jacket", "description": "Stowable hood in the collar"})
+    assert not importer.hooded({"name": "Sample Label Bomber Jacket", "description": "Rib collar"})
 
 
 def test_a_size_conversion_chart_is_read_as_the_chest_each_size_fits():
@@ -563,12 +563,12 @@ def test_a_jacket_named_for_nothing_is_a_blazer_only_if_it_could_have_lapels():
     def style(name, description):
         return GarmentImport().style_of({"name": name, "category": "Jackets", "description": description}, "x")
 
-    assert style("Levi's x Barbour Spey Waxed Jacket - Tobacco Wax / Brown", "Waxed cotton Classic corduroy collar Detachable wax cotton hood") == "zip"
-    assert style("Stand Studio Halle Jacket - Nougat", "Faux fur fabric Snap closure on front Crewneck Padded shoulder") == "zip"
-    assert style("Rick Owens Concordian Jacket - Black", "Cotton Slim lapel collar Double button closure on the front") == "tailored"
+    assert style("Sample Goods x Sample Works Waxed Jacket - Tobacco / Brown", "Waxed cotton Classic corduroy collar Detachable wax cotton hood") == "zip"
+    assert style("Sample Atelier Hale Jacket - Beige", "Faux fur fabric Snap closure on front Crewneck Padded shoulder") == "zip"
+    assert style("Sample House Concord Jacket - Black", "Cotton Slim lapel collar Double button closure on the front") == "tailored"
     assert style("Wool Jacket", "Wool. Fully lined.") == "tailored"
     # A tracksuit's top isn't a suit's jacket.
-    assert GarmentImport().style_of({"name": "Courrèges Bicolor Tracksuit Top - Black", "category": "Track Jackets",
+    assert GarmentImport().style_of({"name": "Sample House Bicolor Tracksuit Top - Black", "category": "Track Jackets",
                                      "description": "Polyester Mock neckline Two-way zipper closure on the front"}, "x") == "zip"
 
 
@@ -604,7 +604,7 @@ def test_a_shopify_product_the_browser_read_with_only_a_size_conversion_table_ge
     sizing = {"sizings": [{"tables": {"a": {"data": [[cell(v) for v in row] for row in [
         ["S/M/L", "1/2/3", "US"], ["S", "1", "38"], ["M", "2", "40"], ["L", "3", "42"]]]}}}]}
     given = {"shop": "sample-shop.myshopify.com", "sizing": sizing, "product": {
-        "id": 7, "handle": "label-tee-2", "title": "Label Cindy Tee - White", "vendor": "Label", "product_type": "Short Sleeve Tees",
+        "id": 7, "handle": "label-tee-2", "title": "Label Portrait Tee - White", "vendor": "Label", "product_type": "Short Sleeve Tees",
         "body_html": "<p>Graphic printed at front</p>", "images": [{"src": "//cdn.shopify.com/tee.jpg"}]}}
     importer = GarmentImport(fetch_json=raises(AssertionError("the browser's answers are used, not fetched again")))
     garment = importer.from_shopify("https://shop.example/collections/tops/products/label-tee-2", given=given)
@@ -617,7 +617,7 @@ def test_a_shopify_product_the_browser_read_with_only_a_size_conversion_table_ge
 
 def test_a_cotton_zip_up_hoodie_with_ribbed_cuffs_and_a_kangaroo_pocket_is_a_hoodie_that_zips_not_a_jacket():
     importer = GarmentImport()
-    product = {"name": "Daily Paper Boxy Camo Zip Up Hoodie - Stone Gray", "category": "Hoodies",
+    product = {"name": "Sample Label Boxy Camo Zip Up Hoodie - Stone Gray", "category": "Hoodies",
                "description": "100% cotton All-over Croc Camo print Drawcord-adjustable two-piece hood Front zipper closure Kangaroo pocket Ribbed cuffs and hem Relaxed fit"}
     assert importer.kind_of(product) == "top"
     # A nylon one with the same zip is still a jacket.
@@ -628,13 +628,13 @@ def test_a_shrunken_sweater_hoodie_with_a_two_way_zip_is_a_fitted_knit_top_not_a
     sizing = {"sizings": [{"tables": {"a": {"data": [[cell(v) for v in row] for row in [
         ["Size", "Chest", "Shoulders", "Sleeve Length", "Body Length"], ["XS", "30", "14", "25.125", "19.25"], ["S", "32", "14.5", "25.5", "20"],
         ["M", "34", "15", "25.875", "20.75"], ["L", "36", "15.5", "26.25", "21.5"], ["XL", "39", "16.25", "26.75", "22.25"]]]}}}]}
-    given = {"shop": "kithnyc.myshopify.com", "sizing": sizing, "product": {
-        "id": 9, "handle": "khwsw0106-265", "title": "Kith Women Adley Shrunken Multi Sweater Hoodie - Legacy", "vendor": "Kith Women",
+    given = {"shop": "sample-label.myshopify.com", "sizing": sizing, "product": {
+        "id": 9, "handle": "sl-ada-hoodie", "title": "Sample Label Women Ada Shrunken Multi Sweater Hoodie - Cream", "vendor": "Sample Label Women",
         "product_type": "Hoodies", "tags": "hoodies, sweaters, Tops, wmns",
-        "body_html": "<p>Cotton blend with a fixed hood, a Kith-branded two-way zipper on the front, Kith embroidery at the chest, and ribbed sleeve cuffs, sides, and hem.</p><p>Material: 60% Cotton / 40% Viscose</p>",
+        "body_html": "<p>Cotton blend with a fixed hood, a two-way zipper on the front, embroidery at the chest, and ribbed sleeve cuffs, sides, and hem.</p><p>Material: 60% Cotton / 40% Viscose</p>",
         "images": [{"src": "//cdn.shopify.com/adley.jpg"}], "options": [{"name": "Size", "values": ["XS", "S", "M", "L", "XL"]}]}}
     importer = GarmentImport(fetch_json=raises(AssertionError("the browser's answers are used")))
-    garment = importer.from_shopify("https://kith.com/collections/womens-apparel-hoodies/products/khwsw0106-265", given=given)
+    garment = importer.from_shopify("https://sample-label.example/collections/womens-apparel-hoodies/products/sl-ada-hoodie", given=given)
 
     assert values_at(garment, "garment", "style", "fabric", "zip", "women") == ["top", "hoodie", "knit", True, True]
     assert garment["cut"] == {"fit": "fitted", "stretch": True}
@@ -647,10 +647,10 @@ def test_a_shrunken_sweater_hoodie_with_a_two_way_zip_is_a_fitted_knit_top_not_a
     assert garment["chart"].get("sleeve_from") is None
     # The same hoodie, insulated, is still a jacket.
     down = {**given, "product": {**given["product"], "title": "Lodge Hoodie - Black", "body_html": "<p>Nylon, downproof. Two-way zipper closure.</p>"}}
-    assert values_at(importer.from_shopify("https://kith.com/products/khwsw0106-265", given=down), "garment", "style") == ["jacket", "zip"]
+    assert values_at(importer.from_shopify("https://sample-label.example/products/sl-ada-hoodie", given=down), "garment", "style") == ["jacket", "zip"]
     # A plain fleece hoodie isn't fitted ("ribbed fitted cuffs" don't count), and its fleece isn't a knit.
-    fleece = {**given, "product": {**given["product"], "title": "Kith Williams III Hoodie - Black", "body_html": "<p>Cotton fleece. Kangaroo pocket. Ribbed fitted cuffs and hem.</p>"}}
-    plain = importer.from_shopify("https://kith.com/products/khwsw0106-265", given=fleece)
+    fleece = {**given, "product": {**given["product"], "title": "Sample Label Willet Hoodie - Black", "body_html": "<p>Cotton fleece. Kangaroo pocket. Ribbed fitted cuffs and hem.</p>"}}
+    plain = importer.from_shopify("https://sample-label.example/products/sl-ada-hoodie", given=fleece)
     assert values_at(plain, "garment", "style", "fabric", "cut") == ["top", "hoodie", "cotton", None]
     # A sweater is a knit whatever its fibre; a slim-fit woven shirt is fitted but doesn't stretch.
     assert importer.fabric_of({"name": "Merino Crewneck Sweater", "fabric": "100% Merino Wool"}, "top") == "knit"
@@ -679,8 +679,8 @@ def test_a_sleeve_measured_from_the_centre_back_is_read_from_the_shoulder_seam_o
 
 
 def test_a_site_that_turns_away_every_app_gives_the_links_own_garment_in_usual_sizes_without_asking_it():
-    garment = gi.from_url("https://www.therealreal.com/products/men/clothing/sweaters/zegna-cashmere-collar-cardigan-x6alq")
-    assert garment["name"] == "Zegna Cashmere Collar Cardigan"
+    garment = gi.from_url("https://www.therealreal.com/products/men/clothing/sweaters/sample-label-cashmere-collar-cardigan-x6alq")
+    assert garment["name"] == "Sample Label Cashmere Collar Cardigan"
     # A cardigan is worn open over a top, as a jacket is.
     assert values_at(garment, "garment", "style") == ["jacket", "cardigan"]
     assert not garment.get("women")
@@ -707,20 +707,20 @@ def test_a_link_the_store_wont_give_reads_its_words():
 
 
 def test_a_link_the_store_wont_give_read_by_the_shops_own_name_and_kind_for_it_when_theyre_known():
-    gave_up = "us.bape.com doesn't let apps read its pages"
-    url = "https://us.bape.com/products/1m73-115-902-org"
+    gave_up = "brand.example doesn't let apps read its pages"
+    url = "https://brand.example/products/1m73-115-902-org"
     assert gi.from_link(url, because=gave_up)["name"] == "Org", "the link's words are only an item code"
-    hoodie = gi.from_link(url, because=gave_up, name="BILLIE EILISH X BAPE - CAMO SHARK FULL ZIP HOODIE MENS", category="CUT AND SEWN")
+    hoodie = gi.from_link(url, because=gave_up, name="SAMPLE WORKS X SAMPLE LABEL - CAMO FULL ZIP HOODIE MENS", category="CUT AND SEWN")
     assert values_at(hoodie, "garment", "style") == ["top", "hoodie"]
-    assert hoodie["name"] == "Billie Eilish X Bape - Camo Shark Full Zip Hoodie Mens"
-    assert hoodie["link_note"] == "us.bape.com doesn't let apps read its pages, so this is a hoodie in usual sizes."
-    varsity = gi.from_link("https://us.bape.com/products/1m73-141-901-nvy", because=gave_up, name="BAPE X BILLIE EILISH - VARSITY JACKET MENS", category="JACKETS")
+    assert hoodie["name"] == "Sample Works X Sample Label - Camo Full Zip Hoodie Mens"
+    assert hoodie["link_note"] == "brand.example doesn't let apps read its pages, so this is a hoodie in usual sizes."
+    varsity = gi.from_link("https://brand.example/products/1m73-141-901-nvy", because=gave_up, name="SAMPLE LABEL X SAMPLE WORKS - VARSITY JACKET MENS", category="JACKETS")
     assert varsity["garment"] == "jacket"
 
 
 def test_a_name_that_says_what_it_is_only_after_its_dash_is_read_by_whats_after_it():
     importer = GarmentImport()
-    assert importer.kind_of({"name": "BILLIE EILISH X BAPE - CAMO SHARK FULL ZIP HOODIE MENS", "category": "CUT AND SEWN", "sorted": True}) == "top"
+    assert importer.kind_of({"name": "SAMPLE WORKS X SAMPLE LABEL - CAMO FULL ZIP HOODIE MENS", "category": "CUT AND SEWN", "sorted": True}) == "top"
     assert importer.kind_of({"name": "Track Jacket - Peacoat", "category": None}) == "jacket"
 
 
@@ -769,14 +769,14 @@ def test_reads_a_trousers_chart_inseam_and_all():
 
 
 def test_pants_with_no_size_chart_get_the_waist_sizes_their_page_offers():
-    html = """<html><head><title>Athletic-Fit Linen-Blend Pant | Banana Republic Factory</title></head><body>
+    html = """<html><head><title>Athletic-Fit Linen-Blend Pant | Sample Outlet</title></head><body>
       <h1>Athletic-Fit Linen-Blend Pant</h1><p>$39.99</p>
       <div class="pdp-dimension--waist"><h3>Waist</h3><button>28W</button><button>30W</button><button>32W</button><button>34W</button></div>
       <div class="pdp-dimension--length"><h3>Length</h3><button>30L</button><button>32L</button></div>
       <a href="/size-guide">Size Guide</a>
     </body></html>
     """
-    garment = GarmentImport(fetch_page=lambda _: "<html></html>").from_page(html, source_url="https://bananarepublicfactory.gapfactory.com/browse/product.do?pid=1")
+    garment = GarmentImport(fetch_page=lambda _: "<html></html>").from_page(html, source_url="https://outlet.example/browse/product.do?pid=1")
 
     assert values_at(garment, "garment", "style") == ["trousers", "trousers"]
     assert [size["name"] for size in garment["chart"]["sizes"]] == ["28", "30", "32", "34"]
@@ -849,7 +849,7 @@ def test_a_dress_is_a_dress_not_a_jacket_with_long_sleeves_when_its_listing_says
 
 def test_a_rugby_shirt_is_a_long_sleeve_polo_and_a_jersey_whose_photo_shows_long_sleeves_has_them():
     style = GarmentImport().top_style_of
-    assert style({"name": "Nicholas Daley Reggae Klub Rugby Jersey - Black / Midnight", "category": "Jerseys", "description": "Spread collar Dropped shoulders"}) == "rugby"
+    assert style({"name": "Sample Atelier Club Rugby Jersey - Black / Navy", "category": "Jerseys", "description": "Spread collar Dropped shoulders"}) == "rugby"
     assert style({"name": "Long Sleeve Polo - Navy"}) == "rugby"
     # A jersey named for nothing: its photo's sleeves reach down past the hem, or barely leave the shoulder.
     assert style({"name": "Dazzle Jersey - Black", "category": "Jerseys", "shape": {"sleeve": 1.28, "sleeve_down": 1.0, "length": 1.28}}) == "longsleeve"
@@ -859,16 +859,16 @@ def test_a_rugby_shirt_is_a_long_sleeve_polo_and_a_jersey_whose_photo_shows_long
 
 def test_a_shirt_whose_description_or_photo_shows_short_sleeves_is_a_short_sleeve_shirt():
     style = GarmentImport().top_style_of
-    assert style({"name": "Orlebar Brown Maitan Solstice Shirt - Tarragon Green", "category": "Button Up Shirts", "shape": {"sleeve": 1.01, "sleeve_down": 0.55}}) == "shortshirt"
-    assert style({"name": "Teatora Doctoroid Wide Shirt - Black", "description": "Boxy fit Short sleeves"}) == "shortshirt"
+    assert style({"name": "Sample House Solstice Shirt - Green", "category": "Button Up Shirts", "shape": {"sleeve": 1.01, "sleeve_down": 0.55}}) == "shortshirt"
+    assert style({"name": "Sample Works Wide Shirt - Black", "description": "Boxy fit Short sleeves"}) == "shortshirt"
     # A long-sleeve one hangs down past seven tenths, and one with no photo stays long.
-    assert style({"name": "Lemaire Shirt - Caviar", "shape": {"sleeve": 1.23, "sleeve_down": 0.92}}) == "shirt"
+    assert style({"name": "Sample Atelier Shirt - Black", "shape": {"sleeve": 1.23, "sleeve_down": 0.92}}) == "shirt"
     assert style({"name": "Oxford Shirt - Blue"}) == "shirt"
     # An undershirt is a tee.
-    assert style({"name": "Kith 3-Pack Undershirt - White"}) == "tee"
+    assert style({"name": "Sample Label 3-Pack Undershirt - White"}) == "tee"
     # A "Long Sleeve Shirt" is a button-up, not a long-sleeve tee.
-    assert style({"name": "Lemaire Long Sleeve Shirt - Caviar"}) == "shirt"
-    assert style({"name": "C.P. Company Linen Long Sleeve Button Lens Shirt - Frozen Dew"}) == "shirt"
+    assert style({"name": "Sample Atelier Long Sleeve Shirt - Black"}) == "shirt"
+    assert style({"name": "Sample House Linen Long Sleeve Button Shirt - Pale Blue"}) == "shirt"
     assert style({"name": "Long Sleeve T-Shirt - White"}) == "longsleeve"
 
 
@@ -882,14 +882,14 @@ def test_sweatpants_whose_photo_shows_an_open_wide_hem_have_no_cuffs_and_their_l
     # Wide legs laid touching (no thigh found), the hem 0.69 of the waist.
     shape = importer.photo_bottom_shape({"thigh": None, "hem": 0.687, "rise": 0.331, "length": 2.65})
     assert shape == {"thigh": None, "hem": 0.687, "rise": 0.331, "length": 2.65}
-    essentials = {"name": "Essentials MLB Lounge Sweatpant - Black", "description": "Elastic waistband Drawcord Relaxed fit", "bottom_shape": shape}
-    assert importer.bottoms_cut(essentials, "joggers", trouser_chart([81, 81]))["open_hem"]
+    lounge = {"name": "Sample Label Lounge Sweatpant - Black", "description": "Elastic waistband Drawcord Relaxed fit", "bottom_shape": shape}
+    assert importer.bottoms_cut(lounge, "joggers", trouser_chart([81, 81]))["open_hem"]
     legs = importer.as_photographed_legs([{"name": "L", "waist": 86.0, "seat": 110.0, "inseam": 81}], shape)
     assert legs[0]["leg_opening"] == pytest.approx(59, abs=1)
     # A cuffed jogger, or one whose listing says it's cuffed, keeps its cuffs.
-    cargo = {"name": "Stone Island Loose Fit Sweatpant", "description": "Elasticated cuffs", "bottom_shape": {**shape, "hem": 0.45}}
+    cargo = {"name": "Sample Goods Loose Fit Sweatpant", "description": "Elasticated cuffs", "bottom_shape": {**shape, "hem": 0.45}}
     assert (importer.bottoms_cut(cargo, "joggers", trouser_chart([81, 81])) or {}).get("open_hem") is None
-    assert (importer.bottoms_cut({**essentials, "description": "Ribbed cuffs"}, "joggers", trouser_chart([81, 81])) or {}).get("open_hem") is None
+    assert (importer.bottoms_cut({**lounge, "description": "Ribbed cuffs"}, "joggers", trouser_chart([81, 81])) or {}).get("open_hem") is None
     # Big shorts (a 4XL's thigh past what an 80 cm opening allows) don't raise.
     big = importer.as_photographed_legs([{"name": "4XL", "waist": 117.0, "seat": 146.0, "thigh": 104.0, "inseam": 20}], shape)
     assert big[0]["leg_opening"] == 80
@@ -901,12 +901,12 @@ def test_pants_the_shop_calls_baggy_wide_relaxed_or_pleated_are_cut_loose_slim_s
     def cut(name, description="", style="trousers"):
         return importer.bottoms_cut({"name": name, "description": description}, style, trouser_chart([81, 81]))
 
-    assert cut("Loewe Anagram Baggy Jeans - Jeans Blue", "", "jeans") == {"fit": "loose"}
-    assert cut("Giorgio Armani & Kith Pleated Pant - Senape", "Elasticated waistband with drawcord") == {"elastic": True, "fit": "loose"}
-    assert cut("Giorgio Armani & Kith Cargo Pant - Sabbia", "Pleats at the waist. Relaxed, straight leg fit") == {"fit": "loose"}
+    assert cut("Sample House Baggy Jeans - Denim Blue", "", "jeans") == {"fit": "loose"}
+    assert cut("Sample House Pleated Pant - Mustard", "Elasticated waistband with drawcord") == {"elastic": True, "fit": "loose"}
+    assert cut("Sample House Cargo Pant - Sand", "Pleats at the waist. Relaxed, straight leg fit") == {"fit": "loose"}
     assert cut("Wide-Leg Trouser") == {"fit": "loose"}
     assert cut("Slim Tapered Chino") == {"fit": "slim"}
-    assert cut("Giorgio Armani & Kith Cashmere Trouser - Iron", "Button closure at the waistband. Straight-leg fit") is None
+    assert cut("Sample House Cashmere Trouser - Iron", "Button closure at the waistband. Straight-leg fit") is None
     # A wide waistband isn't a wide leg; leggings aren't cut loose or slim.
     assert cut("Twill Trouser", "Wide waistband") is None
     assert cut("Slim Leggings", "", "leggings") is None
@@ -928,13 +928,13 @@ def test_trousers_sold_unhemmed_are_marked_so():
 def test_french_and_italian_sizes_are_read_as_the_waists_theyre_for_not_as_inches():
     importer = GarmentImport()
     # French 38 to 46: a 44 is a 34 in waist, not a 44.
-    loewe = importer.usual_trousers({"name": "Loewe Anagram Baggy Jeans", "sizes": ["38", "40", "42", "44", "46"]})
-    assert next(s for s in loewe.sizes if s["name"] == "44")["waist"] == pytest.approx(34 * 2.54, abs=0.1)
+    baggy = importer.usual_trousers({"name": "Sample House Baggy Jeans", "sizes": ["38", "40", "42", "44", "46"]})
+    assert next(s for s in baggy.sizes if s["name"] == "44")["waist"] == pytest.approx(34 * 2.54, abs=0.1)
     italian = importer.usual_trousers({"name": "Wool Trouser", "sizes": ["44", "46", "48", "50", "52", "54"]})
     assert next(s for s in italian.sizes if s["name"] == "48")["waist"] == pytest.approx(32 * 2.54, abs=0.1)
     # Waist sizes stay waist sizes.
-    levis = importer.usual_trousers({"name": "501 Jean", "sizes": ["28", "29", "30", "31", "32", "33", "34", "36", "38", "40"]})
-    assert next(s for s in levis.sizes if s["name"] == "34")["waist"] == pytest.approx(34 * 2.54, abs=0.1)
+    straight = importer.usual_trousers({"name": "Classic Straight Jean", "sizes": ["28", "29", "30", "31", "32", "33", "34", "36", "38", "40"]})
+    assert next(s for s in straight.sizes if s["name"] == "34")["waist"] == pytest.approx(34 * 2.54, abs=0.1)
 
 
 def test_a_womens_jacket_or_coat_with_no_chart_gets_a_womens_usual_sizes():
@@ -947,12 +947,12 @@ def test_a_womens_jacket_or_coat_with_no_chart_gets_a_womens_usual_sizes():
 
 def test_a_jacket_made_to_end_at_the_waist_and_an_oversized_top_or_jacket_say_so_in_their_cut():
     importer = GarmentImport()
-    assert importer.jacket_cut({"name": "Kith Women Ina II Terry Track Zip - Astronaut"}) == {"ends": "waist"}
-    assert importer.jacket_cut({"name": "Giorgio Armani & Kith Lamb Leather Aviator Blouson Jacket - Meteorite"}) == {"ends": "waist"}
+    assert importer.jacket_cut({"name": "Sample Label Women Isla Terry Track Zip - Navy"}) == {"ends": "waist"}
+    assert importer.jacket_cut({"name": "Sample House Lamb Leather Aviator Blouson Jacket - Grey"}) == {"ends": "waist"}
     assert importer.jacket_cut({"name": "Utility Jacket", "description": "An oversized fit with dropped shoulders."}) == {"fit": "oversized"}
-    assert importer.jacket_cut({"name": "Kith Vancouver Dejan Utility Jacket - Kindling", "description": "Nylon. Mock neckline."}) is None
+    assert importer.jacket_cut({"name": "Sample Label Harbour Utility Jacket - Brown", "description": "Nylon. Mock neckline."}) is None
     assert importer.top_cut({"name": "Boxy Pocket Tee", "description": "Cotton."}) == {"fit": "oversized"}
-    assert importer.style_of({"name": "Giorgio Armani & Kith Lamb Leather Aviator Blouson Jacket - Meteorite", "category": "Leather Jackets"}, "x") == "bomber"
+    assert importer.style_of({"name": "Sample House Lamb Leather Aviator Blouson Jacket - Grey", "category": "Leather Jackets"}, "x") == "bomber"
 
 
 def test_a_long_sleeve_the_shop_photo_shows_hanging_past_the_hem_is_read_from_the_shoulder_not_the_centre_back():
@@ -975,21 +975,21 @@ def test_a_long_sleeve_the_shop_photo_shows_hanging_past_the_hem_is_read_from_th
 def test_what_a_listing_is_from_words_that_misled_it():
     importer = GarmentImport()
     # Padded elbows don't make a hoodie a padded jacket.
-    assert importer.kind_of({"name": "Brain Dead Padded Elbow Zip-Up Hoodie - Sand", "category": "Hoodies",
+    assert importer.kind_of({"name": "Sample Goods Padded Elbow Zip-Up Hoodie - Sand", "category": "Hoodies",
                              "description": "Cotton Drawstring-adjustable hood Two-way zipper closure on the front Split kangaroo pockets Padded elbows Ribbed sleeve cuffs and hem"}) == "top"
     assert importer.kind_of({"name": "Padded Hoodie", "category": "Hoodies", "description": "Padded throughout Hood Zip closure"}) == "jacket"
     # A stowaway hood isn't drawn, and a hook-and-eye closure (spelled "hood-and-eye") isn't a hood.
     assert not importer.hooded({"name": "&Kin 2L Flannel Rainier Jacket", "description": "Drawcord-adjustable stowaway hood Snap at back collar"})
-    assert not importer.hooded({"name": "Kith Women Miran Faux Fur Duster", "description": "Faux fur Hood-and-eye closure on the front"})
+    assert not importer.hooded({"name": "Sample Label Women Mara Faux Fur Duster", "description": "Faux fur Hood-and-eye closure on the front"})
     # A duster is a coat; a shrug is worn open, as a cardigan is.
-    assert importer.kind_of({"name": "Kith Women Miran Faux Fur Duster - Chelonian", "category": "Outerwear"}) == "coat"
-    assert importer.style_of({"name": "EB Denim Dahlia Shrug - Army", "category": "Tank Tops", "description": "Off-shoulder neckline Ribbed texture"}, "x") == "cardigan"
+    assert importer.kind_of({"name": "Sample Label Women Mara Faux Fur Duster - Brown", "category": "Outerwear"}) == "coat"
+    assert importer.style_of({"name": "Sample Goods Dahlia Shrug - Army", "category": "Tank Tops", "description": "Off-shoulder neckline Ribbed texture"}, "x") == "cardigan"
     # A coach jacket that zips, its snaps on the collar and pockets; a utility jacket that snaps shut stays a shirt jacket.
-    assert importer.style_of({"name": "Stone Island Denim Research Coach Jacket - Navy Blue", "category": "Coaches Jackets",
+    assert importer.style_of({"name": "Sample Goods Denim Studio Coach Jacket - Navy Blue", "category": "Coaches Jackets",
                               "description": "Classic collar with three-position snap closure Two-way concealed zip closure Pleated patch pockets with snap closure"}, "x") == "zip"
     assert importer.style_of({"name": "Utility Jacket", "category": "Jackets", "description": "Zip closure on the chest pocket Snap closure on the front"}, "x") == "shirt"
     # A "T-shirt" with a shirt's collar, buttoned down the front, is a short-sleeve shirt; a henley stays a tee.
-    assert importer.top_style_of({"name": "CDG Homme Crinkle Finish T-Shirt - Black", "category": "Button Up Shirts",
+    assert importer.top_style_of({"name": "Sample Atelier Homme Crinkle Finish T-Shirt - Black", "category": "Button Up Shirts",
                                   "description": "Classic collar Button closure on the front All-over crinkle effect"}) == "shortshirt"
     assert importer.top_style_of({"name": "Henley Tee", "category": "Tees", "description": "Three-button placket"}) == "tee"
 
@@ -1005,7 +1005,7 @@ def test_what_a_listing_is_from_words_that_misled_it():
     assert not named("Crewneck Ribbed cuffs", "top", "sweatshirt")
     assert not named("Spread collar", "top", "dress")
     # A tee filed under long-sleeve tees has long sleeves.
-    assert importer.top_style_of({"name": "Kith Women Bodyn Boatneck Tee - Black", "category": "Long Sleeve Tees", "description": "Boat neckline Fitted"}) == "longsleeve"
+    assert importer.top_style_of({"name": "Sample Label Women Boatneck Tee - Black", "category": "Long Sleeve Tees", "description": "Boat neckline Fitted"}) == "longsleeve"
 
 
 def test_a_photo_is_fetched_once_and_kept_inline(monkeypatch):

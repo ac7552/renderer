@@ -262,7 +262,7 @@ class ChartReader:
         if GARMENT_WORDS.search(self.context):
             return "garment"
         # And it grows as its size numbers do: 2.54 cm a size for inches, 2 cm for an EU or Italian size. (EU garment
-        # chests can land near a size number in inches by chance: an Armani 54 jacket is 139 cm round.)
+        # chests can land near a size number in inches by chance: an Italian 54 jacket can be 139 cm round.)
         numbered = []
         for size in sizes:
             digits = re.search(r"\d+", size["name"])
