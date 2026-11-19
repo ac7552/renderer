@@ -1,0 +1,3579 @@
+import * as THREE from "three"
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js"
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js"
+import { OrbitControls } from "three/addons/controls/OrbitControls.js"
+import { blockNear, deltaE, linearOf, litColour } from "lib/colour"
+import { TracedStill } from "lib/trace"
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js"
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js"
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js"
+import { N8AOPass } from "n8ao"
+import { drawnBody, drawnSize, fitBody, fitJacket, fitTrousers } from "lib/body_fit"
+import { DrapedTop, TUCKABLE, bodySnapshot, coveredPoints, garmentWeights, prepareBody, skinPoints, vertexNormals } from "lib/garments/dress"
+import { bodyFrame } from "lib/garments/body"
+import { overLayer } from "lib/garments/pattern"
+import { RemoteDrape } from "lib/garments/remote_drape"
+import { hangerSpec } from "lib/garments/hanger"
+import { HangTrial, TRIALS, TRIAL_ON } from "lib/garments/silhouette"
+import { accessoryMaterial, beltGeometry, buckleGeometry, heelRise, heelStemGeometry, outerShell, photoShoeGeometry, riseForHeel, shoeGeometry, sockGeometry, standInShoes, strapGeometry, wrapShoePhoto } from "lib/garments/accessories"
+import { shoeTexture, viewTexture } from "lib/garments/print"
+import { lastFor, shaftShare } from "lib/garments/lasts"
+import { SHOULDER_DEPTH, bagCardGeometry, bagGeometry, bagSize, bagStrapGeometry, bagSurface, bagWay, shoulderFall, strapGround, wearBag } from "lib/garments/bag"
+import { hullGeometry } from "lib/garments/hull"
+import { OPEN_SHAPED, openGeometry } from "lib/garments/open_shape"
+import { lastGeometry, onLast } from "lib/garments/last_shape"
+import { loadTemplate, scanFor, templateFor, templateGeometry, templateNow, templatesIndexed } from "lib/garments/templates"
+import { projectAngled, readAngled } from "lib/garments/angled"
+import { photoPose } from "lib/garments/photo_remote"
+import { BLANK_TEXTURE, PROJECTION, projectionUniforms, withProjection } from "lib/garments/fabric"
+import { meanRatio } from "lib/projection"
+import { DrapeBank, exportEntry, skinWith, warmStart } from "lib/garments/drape_bank"
+import { HangerDrape, collarColour, collarStrip, guardForeign, keepOnCloth, loadPhotoForRedrape, paintOutCollar, registerPhoto, rigidPrints, showsCloth, straightPattern, trustPieces } from "lib/garments/redrape"
+import { easeInOut, framing } from "lib/framing"
+import { StillFrames } from "lib/still"
+import { softenHead, weldedNormals } from "lib/mannequin_surface"
+import { FITTED_BONES, jointMove, jointShifts } from "lib/bone_fit"
+import { COLLAR_LEAF, COLLAR_THICK, alongLine, leafFront, leafLength, leafLine, surfaceUnder } from "lib/garments/collar"
+
+// The 3D fitting room, styled as a product shot: a white display mannequin in your shape (built by
+// script/mannequin/build.py) wearing an outfit (a top, a jacket, a coat, trousers) in the chosen sizes, in
+// soft studio light on a pale seamless backdrop. Tops and casual jackets are cut from sewing patterns and
+// draped with cloth simulation (lib/garments); the suit's jacket, coats and trousers are shaped from the
+// model. Three views: on the mannequin, the clothes alone ("ghost"), and the fit map; and a few poses. Drag
+// to turn it.
+const MODELS = "/models"
+const MANNEQUIN_WHITE = "#f4f2ee"
+// The white mannequin's satin finish (see mannequinMaterial).
+const WHITE_FINISH = { roughness: 0.58, clearcoat: 0.35, clearcoatRoughness: 0.32 }
+// The studio: graphite, lit from above the figure, like the page round it.
+// The neck, in the body's own (rest pose) space: cut level at this height, and the egg's neck piece reaching
+// a little below the cut, about as round as the neck there.
+// The pose garments are sewn in: the rig's rest pose (arms out, as garment tools do it) with the legs brought
+// together, so a long garment fits round them (in the rest pose they stand so far apart that a straight dress
+// can't go round the knees, and rides up).
+const SEWING_POSE = [["thigh_l", "z", -0.16], ["thigh_r", "z", 0.16]]
+// A bag carried in the hand: that arm hangs straight down under its weight (applyPose's hangArm: the upper arm
+// upright seen from the side, the forearm a touch forward of it), and the fingers close round its handles as a
+// hook (a clutch: round its edge, less closed). The relaxed hand's curl is poses.json's.
+const CARRY_FOREARM = 0.05
+const CARRY_GRIP = { hook: { curl: { "01": 1.15, "02": 1.45, "03": 0.6 }, thumb: 0.5 }, hold: { curl: { "01": 0.75, "02": 0.9, "03": 0.45 }, thumb: 0.35 } }
+const NECK = { cut: 1.5, bottom: 1.484, centreZ: 0.032, radii: [0.066, 0.057] }
+const BACKDROP = ["#2b2f36", "#1a1c21", "#0f1013"]
+const WOOL_REPEAT = 46     // how many times the wool grain tiles across the suit's texture
+
+// How each kind of cloth catches light: roughness, sheen, how much the weave shows, and (leather) a coat;
+// and the colour of its stitching and hardware ("tone" means the cloth's own colour, a shade lighter).
+const FABRICS = {
+  wool: { roughness: 0.92, sheen: 0.35, weave: 0.35, clearcoat: 0, thread: "tone", metal: "#2b2724" },
+  cotton: { roughness: 0.88, sheen: 0.2, weave: 0.5, clearcoat: 0, thread: "tone", metal: "#3a3a3a" },
+  denim: { roughness: 0.95, sheen: 0.1, weave: 0.8, clearcoat: 0, thread: "#c58b45", metal: "#8c6a3c" },
+  leather: { roughness: 0.55, sheen: 0, weave: 0.05, clearcoat: 0.15, thread: "tone", metal: "#8d8f93" },
+  nylon: { roughness: 0.4, sheen: 0.15, weave: 0.05, clearcoat: 0.15, thread: "tone", metal: "#8d8f93" }
+}
+// Jacket styles: "tailored" is the suit's jacket, shaped from the model; the casual ones are cut from a
+// pattern and draped like tops (lib/garments).
+export const STYLES = ["tailored", "zip", "bomber", "shirt"]
+// Tops, and casual jackets, cut from a sewing pattern and draped on the mannequin with cloth simulation.
+// The idle turn: how fast (OrbitControls' units: 2 is a turn in 30 s at 60 fps; this is about 75 s) and how
+// long after the last touch (ms) it starts.
+const IDLE_TURN = { speed: 0.8, after: 8000 }
+// The reveal, once a new garment is on: it fades in, and the figure makes one slow turn (ms).
+const REVEAL = { fade: 600, turn: 8000, camera: 600 }
+
+// The three studios (see setScene). "studio" is the default: a warm off-white seamless sweep, as a shop's
+// lookbook is shot, with a big soft key light, a long soft shadow under the feet and a faint cool light from
+// behind so the figure stands off the backdrop. "daylight" is a cooler pale grey, "dark" the graphite stage.
+// exposure also tones the backdrop (see backdropTone); environment is the HDRI's share; key, fill and rim are
+// the lights' strengths; floor and contact the shadows' darkness; stretch lengthens the contact shadow.
+const LOOKS = {
+  studio: {
+    exposure: 1.05, environment: 0.8, key: 1.75, keyRadius: 14, fill: 0.4,
+    rim: { color: 0xdbe4ff, intensity: 0.35, position: [-0.8, 2.6, -3] },
+    pool: false, floor: 0.22, contact: 0.32, stretch: 1.9
+  },
+  daylight: {
+    exposure: 1.05, environment: 0.75, key: 1.7, keyRadius: 14, fill: 0.55,
+    rim: { color: 0xffffff, intensity: 0.55, position: [0, 2.5, -3] },
+    pool: false, floor: 0.3, contact: 0.38, stretch: 1
+  },
+  dark: {
+    exposure: 1, environment: 0.85, key: 1.6, keyRadius: 8, fill: 0,
+    rim: { color: 0xdde6ff, intensity: 0.4, position: [-1.4, 2.6, -2.6] },
+    pool: true, floor: 0.45, contact: 0.55, stretch: 1
+  }
+}
+export const SCENES = Object.keys(LOOKS)
+
+// Contact shading's reach (metres; about a hand's width) and strength.
+const AO = { radius: 0.22, falloff: 1, intensity: 3.2 }
+
+export const DRAPED_STYLES = ["tailored", "tee", "longsleeve", "sweatshirt", "hoodie", "zip", "bomber", "shirt", "shortshirt", "dress", "polo", "rugby", "tank", "sweater", "shortknit", "cardigan", "coat"]
+
+export const STATUS_COLORS = {
+  good: "#3fa672", tight: "#de4f37", short: "#de4f37", loose: "#4f63f0", long: "#4f63f0", unknown: "#9a9ca3"
+}
+// Which ease shape key shows each part of the fit, for colouring the fit map.
+const REGIONS = {
+  jacket: { "ease-chest": "chest", "ease-waist": "waist", "ease-shoulders": "shoulders", "ease-sleeve": "sleeve", "ease-length": "length" },
+  trousers: { "ease-trousers-waist": "waist", "ease-seat": "seat", "ease-inseam": "inseam", "ease-leg-opening": "leg_opening" }
+}
+const EASE_KEYS = {
+  jacket: Object.keys(REGIONS.jacket),
+  trousers: ["ease-trousers-waist", "ease-seat", "ease-thigh", "ease-inseam", "ease-leg-opening"]
+}
+
+// Poses live in public/models/poses.json, shared with the studio renderer so a photo matches the screen.
+
+// The draped layers, from the skin out, and which each is sewn over: the pants, the top over them and a
+// casual jacket over both. A tucked top is gathered close round the body under the pants' waistband, so the
+// top and the pants are each sewn on the body alone, and the jacket over both.
+const LAYERS = ["bottom", "top", "outer"]
+// What a posing step yields while it waits for the drape worker (see posingRemote).
+const WAITING = "waiting"
+// Draping in a Web Worker (remote_drape.js), so turning the mannequin stays smooth while the cloth settles;
+// ?drape=page drapes on the page instead (it falls back to that by itself where workers can't start).
+const DRAPE_IN_WORKER = typeof location !== "undefined" && typeof Worker !== "undefined" && new URLSearchParams(location.search).get("drape") !== "page"
+// Frames a garment started from the bank eases to its own size before it settles (see startFromBank).
+const BANK_EASE = 12
+const BANK_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("bank") !== "off"
+// The store's photographs laid on a top's cloth point for point (redrape.js); ?redrape=off does without.
+const REDRAPE_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("redrape") !== "off"
+// Metering: a camera meters on its subject, and a shop photographs its garment well exposed; the stage's light
+// is fixed, so cloth given the photo's colour came out under it darker and warmer than the photo (Kith's
+// Giorgio Armani crewneck: a third of a stop under, oatmeal drawn khaki). Once a garment is draped and shown,
+// it's drawn alone (lookShot), the middle colour of its cloth read, and its material given the per-channel
+// gain (linear light) that brings that to the photo's cloth colour (item.photoCloth), a few passes over
+// (the tone curve isn't linear). ?meter=off leaves it.
+const METER_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("meter") !== "off"
+const METER_GAIN = [0.5, 2.2]   // no further than this either way: a photo on a model, or a misread colour
+const METER_PASSES = 3
+const METER_FLOOR = 0.004   // linear light, about 17 in sRGB
+const METER_BALANCE = 0.08  // how far the white balance may go from the exposure, either way
+// The longest the clothes stay covered once they've settled, for what's still to come (see `pending`): a
+// photo that never comes, or a reading that never ends, mustn't keep them covered.
+const HOLD_MOST = 20000
+// The hanger drape in a worker unless the address says ?hang=page.
+const HANG_IN_WORKER = typeof location === "undefined" || new URLSearchParams(location.search).get("hang") !== "page"
+const OVER = { bottom: [], top: ["bottom"], outer: ["bottom", "top"] }
+const TUCKED_LAYERS = ["top", "bottom", "outer"]
+const TUCKED_OVER = { top: [], bottom: [], outer: ["top", "bottom"] }
+
+// Frames averaged for a photo (still.js): smoother edges and softer shadows than one frame.
+const PHOTO_SAMPLES = 16
+// The camera's angle for a "front" photo: a touch off straight on, as lookbooks shoot.
+const FRONT_ANGLE = 0.12
+// The plain backdrop a garment is photographed on to be checked (lookShot): a shop photo's pale grey.
+const LOOK_BACKDROP = 0xeeeeec, LOOK_BACKDROP_DARK = 0x8a8a88
+
+export class FittingStage {
+  constructor(canvas) {
+    this.canvas = canvas
+    this.view = "mannequin"
+    this.pose = "standing"
+    this.outfit = []
+    this.lastEase = {}
+    // What's draped, in layers: the pants ("bottom"), over them the top ("top"), and over that a casual
+    // jacket ("outer"); and what's on screen while a new one is sewn (see removeDraped). Each layer waits for
+    // the ones under it to be sewn, then is sewn over them (this.waiting: the specs waiting, by layer).
+    this.slots = { bottom: null, top: null, outer: null }
+    this.leaving = { bottom: null, top: null, outer: null }
+    this.waiting = {}
+    // How many of the page's own readings of the clothes' photos are under way (see hold), and since when the
+    // clothes have been settled with something still to come (see pending, finished).
+    this.holds = 0
+    this.pendingSince = null
+    this.order = LAYERS
+    this.tucked = false     // whether a top is worn tucked into the pants (when it can be)
+    this.drapeBudget = 20   // milliseconds of draping per frame
+    this.hangs = 0   // hanger drapes sent to the worker, for their ids
+    // Or the drape in a worker, at full speed and off this thread (null when it isn't, or can't be, used).
+    this.remote = DRAPE_IN_WORKER ? RemoteDrape.start() : null
+    this.remoteIds = 0
+    // Garments draped before, to start the next of the same kind from (drape_bank.js); ?bank=off does without.
+    this.bank = BANK_ON ? new DrapeBank() : null
+    // Shoes and socks (on the calves' bones, so they follow the pose) and a belt (round the pants' waistband).
+    this.feet = { key: null, meshes: [], shoes: {}, rise: null }
+    this.belt = { stamp: null, mesh: null, buckle: null }
+    this.dressBelt = { stamp: null, mesh: null, buckle: null }
+    // A bag (bag.js): on the back, across the body or in the hand, over what's worn, once that's settled.
+    this.bag = { stamp: null, meshes: [], texture: null, horns: null, photo: null }
+    // The arm a bag is carried on ("l"), or null; whether in the hand or on the shoulder; how the hand holds it
+    // ("hook" or "hold"); and how far the arm is held out round a bag on the shoulder (radians): see applyPose.
+    this.carry = null
+    this.carryHow = null
+    this.carryGrip = "hook"
+    this.carryOut = 0
+    this.carryFore = 0
+    this.scarf = { stamp: null, mesh: null }
+    this.collars = { stamp: null, meshes: [] }
+    // How the picture is framed: what's laid over its top and bottom (pixels; the figure is centred between),
+    // where the camera is moving to (see frameOutfit) and the figure's slow turn once a garment is on, which
+    // only the page asks for (revealTurns), not a headless picture.
+    this.insets = null
+    this.cameraMove = null
+    this.turn = null
+    this.revealTurns = false
+    this.revealed = false
+    this.stillness = Boolean(globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
+
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    this.renderer.toneMapping = THREE.NeutralToneMapping
+    this.renderer.shadowMap.enabled = true
+    // PCF, whose edge the key light's shadow radius softens (PCFSoftShadowMap ignores the radius: the head's
+    // shadow came down the neck in a stepped line).
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
+    // The browser can take its graphics away (it resets its GPU process when the card hangs or runs out of
+    // memory) and give them back. three.js uploads the meshes and textures again by itself; what was drawn on
+    // the card has to be made again (restoreGraphics). Nothing is drawn meanwhile; onContextLost(lost) tells
+    // the page.
+    this.contextLost = false
+    canvas.addEventListener("webglcontextlost", event => {
+      event.preventDefault()
+      this.contextLost = true
+      cancelAnimationFrame(this.frameId)
+      this.frameId = null
+      this.onContextLost?.(true)
+    })
+    canvas.addEventListener("webglcontextrestored", () => {
+      this.contextLost = false
+      this.restoreGraphics()
+      this.onContextLost?.(false)
+      this.start()
+    })
+
+    this.scene = new THREE.Scene()
+    this.addLights()
+
+    this.camera = new THREE.PerspectiveCamera(22, 1, 0.05, 50)
+    this.controls = new OrbitControls(this.camera, canvas)
+    this.controls.enableDamping = true
+    this.controls.enablePan = false
+    this.controls.enableZoom = false   // the page scrolls over it; zooming isn't needed to judge fit
+    this.controls.minPolarAngle = 1.2
+    this.controls.maxPolarAngle = 1.75
+    this.idleTurn()
+    this.effects = this.addEffects()
+    // Once nothing moves, frames averaged into a smoother, softer-shadowed picture (still.js).
+    this.still = this.effects ? new StillFrames(this) : null
+    // And, where the browser can, the still path traced (trace.js).
+    this.trace = this.still ? new TracedStill(this) : null
+    this.setScene("studio")
+
+    this.resize()
+    this.resizeObserver = new ResizeObserver(() => this.resize())
+    this.resizeObserver.observe(canvas.parentElement)
+    this.resizeObserver.observe(canvas)
+    this.visible = true
+    this.intersectionObserver = new IntersectionObserver(([entry]) => {
+      this.visible = entry.isIntersecting
+      if (this.visible) this.start()
+    })
+    this.intersectionObserver.observe(canvas)
+
+    this.ready = this.load()
+    this.start()
+  }
+
+  async load() {
+    const [gltf, calibration, poses, studio, women] = await Promise.all([
+      new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${MODELS}/mannequin.glb`),
+      fetch(`${MODELS}/mannequin.json`).then(r => r.json()),
+      fetch(`${MODELS}/poses.json`).then(r => r.json()),
+      new RGBELoader().loadAsync(`${MODELS}/studio.hdr`),
+      fetch(`${MODELS}/women.bin`).then(r => (r.ok ? r.arrayBuffer() : null)).catch(() => null)
+    ])
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromEquirectangular(studio).texture
+    this.scene.environmentIntensity = LOOKS[this.sceneLook].environment
+    // (The studio map itself stays, for the path tracer's environment.)
+    this.studioMap = studio
+    pmrem.dispose()
+
+    this.calibration = calibration
+    this.bodyCalibration = calibration
+    this.poses = poses
+    this.model = gltf.scene
+    this.meshes = {}
+    this.model.traverse(object => {
+      if (object.isMesh) {
+        this.meshes[object.name] = object
+        object.castShadow = true
+        object.receiveShadow = true
+        object.frustumCulled = false   // morphs and skinning move it beyond its stored bounds
+      }
+    })
+    // The women's body: a shape key on the body (see mannequin.json's "women").
+    this.hasWomen = Boolean(women && calibration.women) && addShapeKey(this.meshes.body, "women", new Float32Array(women))
+    refineMannequin(this.meshes.body)
+    // The model's casual jacket isn't used: casual jackets are draped (see dressDraped).
+    if (this.meshes.casual) this.meshes.casual.visible = false
+    // A coat is the jacket again, on its own copy of the geometry (it gets its own fit-map colours),
+    // drawn a little bigger so it always sits outside the jacket.
+    const coat = this.meshes.jacket.clone()
+    coat.geometry = this.meshes.jacket.geometry.clone()
+    coat.name = "coat"
+    this.meshes.jacket.parent.add(coat)
+    this.meshes.coat = coat
+
+    this.rest = new Map()
+    this.model.traverse(object => { if (object.isBone) this.rest.set(object, object.quaternion.clone()) })
+
+    await this.dress(calibration.textures)
+    this.addEggHead(calibration.head)
+    if (this.tone) this.setTone(this.tone)
+    if (this.bodyType) this.setBodyType(this.bodyType)
+    this.scene.add(this.model)
+    this.applyPose()
+    this.groundFigure()
+    this.frame()
+    this.redraw()
+    if (this.pendingBody) this.setBody(this.pendingBody)
+  }
+
+  // body: measurements in cm. Shapes the mannequin and everything it wears.
+  // Returns the measurements the model couldn't reach, if any.
+  setBody(body) {
+    if (!this.model) { this.pendingBody = body; return [] }
+    if (this.worn && JSON.stringify(body) !== JSON.stringify(this.measures)) this.wearPhoto(null)
+    this.measures = body
+    this.fitted = fitBody(this.bodyCalibration, body)
+    this.fitted.influences.women = this.bodyType === "women" && this.hasWomen ? 1 : 0
+    this.model.scale.setScalar(this.fitted.scale)
+    for (const mesh of Object.values(this.meshes)) applyInfluences(mesh, this.fitted.influences)
+    this.fitBones()
+    this.applyPose()
+    this.groundFigure()
+    this.redraw()
+    this.frameOutfit()
+    return this.fitted.limited
+  }
+
+  // The floor (its light, its shadows) where the figure's feet are. The body's shape (its morphs: height, legs)
+  // moves its soles off the model's origin, by 3 or 4 cm on the tall bodies; the floor at the origin left the
+  // figure, shoes and all, standing in the air over its own shadow. Read standing, as the shoes are built
+  // (dressFeet): the lowest point of the body, shaped as it is now.
+  groundFigure() {
+    if (!this.model || !this.meshes?.body || !this.floor) return
+    const pose = this.pose
+    if (pose !== "standing") { this.pose = "standing"; this.applyPose() }
+    const p = bodySnapshot(this.meshes.body).positions
+    if (pose !== "standing") { this.pose = pose; this.applyPose() }
+    let low = Infinity
+    for (let i = 1; i < p.length; i += 3) if (p[i] < low) low = p[i]
+    if (!isFinite(low)) return
+    this.ground = low
+    this.pool.position.y = low - 0.001
+    this.floor.position.y = low
+    this.contact.position.y = low + 0.0005
+  }
+
+  // "men" or "women": which body the mannequin has. Its measurements then start from that body's.
+  setBodyType(type) {
+    if (this.worn && type !== this.bodyType) this.wearPhoto(null)
+    this.bodyType = type
+    if (!this.model) return
+    const women = type === "women" && this.hasWomen
+    this.bodyCalibration = women ? { ...this.calibration, body: this.calibration.women.body } : this.calibration
+    // That body's neck piece, and the women's mannequin's smaller head.
+    if (this.eggNeck) {
+      this.eggNeck.geometry = this.necks[women ? "women" : "men"]
+      this.egg.scale.copy(this.eggScale).multiplyScalar(women ? this.calibration.women.head ?? 1 : 1)
+    }
+    // Clothes draped on the other body don't fit this one: take them off now, rather than leave them on
+    // until the new drape is ready.
+    for (const slot of LAYERS) if (this.slots[slot] && this.slots[slot].bodyType !== type) this.removeDraped(slot)
+    this.waiting = {}
+    this.fitBones()
+    this.applyPose()
+    if (this.measures) this.setBody(this.measures)
+    else this.groundFigure()
+  }
+
+  // The skeleton fitted to the body shown. The body's shape is shape keys on one mesh (the women's body, longer
+  // arms, wider shoulders): the skin moves, the bones don't. A longer forearm put the wrist 3 cm past the bone
+  // that turns the hand, and the women's body its arm joints 4 to 12 cm from theirs; an arm turned about a joint
+  // that isn't in it shears (a notch at the elbow, a closed hand a claw). Each arm bone is moved to where its
+  // joint is on the body as shaped (jointShifts, by how much of each shape key is on): its place as bound (the
+  // skeleton's inverses) and its place on its parent. Nothing moves in the pose it's bound in; a turned bone
+  // turns about the body's own joint. Called whenever the shape changes; the pose is put on again after it.
+  fitBones() {
+    const mesh = this.meshes?.body, skeleton = mesh?.skeleton
+    if (!skeleton) return
+    const bones = skeleton.bones, influences = mesh.morphTargetInfluences ?? []
+    const index = new Map(bones.map((bone, i) => [bone, i]))
+    const above = bones.map(bone => { let b = bone.parent; while (b && !index.has(b)) b = b.parent; return b ? index.get(b) : -1 })
+    const fit = this.boneFit ??= {
+      inverses: skeleton.boneInverses.map(m => m.clone()), positions: bones.map(bone => bone.position.clone()),
+      shifts: jointShifts(...["skinIndex", "skinWeight"].map(name => {
+        // (As numbers: a model's weights may be packed as whole numbers.)
+        const attribute = mesh.geometry.attributes[name]
+        return Float32Array.from({ length: attribute.count * 4 }, (_, i) => attribute.getComponent(i >> 2, i & 3))
+      }), (mesh.geometry.morphAttributes.position ?? []).map(key => key.array), above, i => FITTED_BONES.test(bones[i].name))
+    }
+    // (The joints are given in the body's own space: into the space the bones are bound in.)
+    const bound = new THREE.Matrix3().setFromMatrix4(mesh.bindMatrix)
+    const moves = new Array(bones.length).fill(null)
+    // Each bone's move: its own joint's, else that of the nearest bone above it (it's carried along).
+    const moveOf = i => {
+      if (moves[i]) return moves[i]
+      if (!fit.shifts[i]) return (moves[i] = above[i] >= 0 ? moveOf(above[i]) : new THREE.Vector3())
+      return (moves[i] = new THREE.Vector3(...jointMove(fit.shifts[i], influences)).applyMatrix3(bound))
+    }
+    bones.forEach((bone, i) => {
+      bone.position.copy(fit.positions[i])
+      if (this.rest.has(bone)) bone.quaternion.copy(this.rest.get(bone))
+    })
+    this.model.updateMatrixWorld(true)
+    // Where each should stand in the scene: where it stands, moved by its joint's move (the scene's frame from
+    // the bound one: a bone's place in the scene times its inverse as bound, the same for every bone at rest).
+    const scene = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().multiplyMatrices(bones[0].matrixWorld, fit.inverses[0]))
+    const want = bones.map((bone, i) => new THREE.Vector3().setFromMatrixPosition(bone.matrixWorld).add(moveOf(i).clone().applyMatrix3(scene)))
+    // Each put there on its parent, parents first (a child is placed on its parent as moved).
+    this.model.traverse(object => {
+      const i = index.get(object)
+      if (i === undefined) return
+      object.parent.updateWorldMatrix(true, false)
+      object.position.copy(object.parent.worldToLocal(want[i].clone()))
+      object.updateMatrix()
+      object.matrixWorld.multiplyMatrices(object.parent.matrixWorld, object.matrix)
+      const move = moves[i]
+      skeleton.boneInverses[i].copy(fit.inverses[i]).multiply(new THREE.Matrix4().makeTranslation(-move.x, -move.y, -move.z))
+    })
+    this.model.updateMatrixWorld(true)
+  }
+
+  // items: [{ kind: "top" | "jacket" | "coat" | "trousers", size (cm), checks (the API's), color, fabric, style }]
+  setOutfit(items) {
+    this.outfit = items
+    // The AI's picture laid on the clothes (see wearPhoto) was of the outfit as it was: a change takes it off.
+    if (this.worn && this.worn.outfit !== outfitSignature(items)) this.wearPhoto(null)
+    this.redraw()
+  }
+
+  // Whether the top is tucked into the pants or skirt. Only some tops tuck in (see canTuck).
+  setTucked(on) {
+    if (this.worn && Boolean(on) !== this.tucked) this.wearPhoto(null)
+    this.tucked = Boolean(on)
+    this.redraw()
+  }
+
+  // Whether what's worn can be tucked in: a top (a tee, polo, tank or shirt) over pants or a skirt.
+  canTuck(items = this.outfit) {
+    const worn = Object.fromEntries(items.map(item => [item.kind, item]))
+    const tailored = worn.jacket && !DRAPED_STYLES.includes(worn.jacket.style)
+    // (A bodysuit is always worn tucked in, whatever its style: it fastens below.)
+    return Boolean(worn.top && worn.trousers && (TUCKABLE.includes(worn.top.style) || worn.top.bodysuit) && !tailored && !(worn.coat && worn.jacket))
+  }
+
+  // "mannequin", "ghost" (the clothes alone) or "fit" (the fit map, on the mannequin).
+  setView(view) {
+    this.view = view
+    this.redraw()
+  }
+
+  // The mannequin's shade: white fibreglass, or a skin tone (a colour).
+  setTone(color) {
+    this.tone = color
+    if (!this.meshes) return
+    const white = color.toLowerCase() === MANNEQUIN_WHITE
+    for (const material of [this.meshes.body.material, this.meshes.body.material.userData.plain]) {
+      material.color.set(color)
+      // The white form is satin fibreglass; skin is soft, with a little sheen.
+      material.clearcoat = white ? WHITE_FINISH.clearcoat : 0.05
+      material.clearcoatRoughness = white ? WHITE_FINISH.clearcoatRoughness : 0
+      material.roughness = white ? WHITE_FINISH.roughness : 0.62
+      material.sheen = white ? 0 : 0.25
+      material.sheenColor.set(color).offsetHSL(0, 0, 0.15)
+    }
+  }
+
+  setPose(name) {
+    if (this.worn && name !== this.pose) this.wearPhoto(null)
+    this.pose = name
+    this.applyPose()
+    // A draped garment follows by settling again in the new pose (see tick).
+    for (const d of Object.values(this.slots)) if (d) d.posedAs = null
+    this.announceBusy()
+    this.start()
+  }
+
+  redraw() {
+    if (!this.meshes || !this.fitted) return
+    const worn = Object.fromEntries(this.outfit.map(item => [item.kind, item]))
+    // A blazer over a dress is draped too, cut as a coat is (a stand collar, buttons): the suit's jacket from
+    // the model has its own shirt in it, and the dress under it wouldn't be drawn at all.
+    if (worn.jacket && !DRAPED_STYLES.includes(worn.jacket.style) && worn.top?.style === "dress" && !worn.coat) worn.jacket = { ...worn.jacket, style: "coat" }
+
+    // A casual jacket is draped like a top, and so is a coat (cut long, its sleeves round the arms), over
+    // the top and the pants; the suit's jacket is drawn from the model, and so is a coat worn over it. A coat
+    // over a casual jacket is draped over it, the jacket draped in the top's place (a top under both can't be
+    // seen): drawn from the model, the coat had the jacket's cloth poking through it.
+    // A bag carried in the hand changes how that arm hangs and how its hand is closed (applyPose): what's
+    // draped follows the arm as it follows a pose.
+    // On the shoulder, the arm is held out round the bag: by more for a deeper bag, within what an arm does.
+    const how = worn.bag ? bagWay(worn.bag.style, worn.bag.carry, worn.bag.bagShape) : null
+    const carry = how === "hand" || how === "shoulder" ? "l" : null, grip = worn.bag?.style === "clutch" ? "hold" : "hook"
+    const scale = this.fitted.scale ?? 1
+    let out = 0, fore = 0
+    if (how === "shoulder") {
+      const size = bagSize(worn.bag.style, worn.bag.bagSize, worn.bag.bagShape)
+      const deep = Math.min(size.depth, SHOULDER_DEPTH * scale)
+      // (The arm clears the bag where the bag is: a bag that hangs lower is cleared by a smaller turn.)
+      const reach = Math.min(0.6 * scale, Math.max(0.3 * scale, shoulderFall(worn.bag.style, size, worn.bag.bagShape, worn.bag.bagSize?.drop ?? null, scale) + size.height * 0.4))
+      // (A crossbody's long strap lets it down to the hip, behind the arm: the arm hangs as it does.)
+      out = worn.bag.style === "crossbody" ? 0.08 : Math.round(Math.min(0.33, Math.max(0.1, Math.atan((deep + 0.015 * scale) / reach))) * 100) / 100
+      // (Beside a bag that hangs below the elbow the forearm keeps the upper arm's line: hanging straight down
+      // from the elbow it would hang in the bag.)
+      fore = Math.round(Math.min(1, Math.max(0, (reach / scale - 0.3) / 0.12)) * 10) / 10
+    }
+    if (carry !== this.carry || how !== this.carryHow || (carry && grip !== this.carryGrip) || out !== this.carryOut || fore !== this.carryFore) {
+      this.carry = carry
+      this.carryHow = carry ? how : null
+      this.carryGrip = grip
+      this.carryOut = out
+      this.carryFore = fore
+      this.applyPose()
+      for (const d of Object.values(this.slots)) if (d) d.posedAs = null
+    }
+    const drapedJacket = Boolean(worn.jacket && DRAPED_STYLES.includes(worn.jacket.style))
+    const tailored = Boolean(worn.jacket && !drapedJacket)
+    const coatOverJacket = Boolean(worn.coat && drapedJacket)
+    const drapedCoat = Boolean(worn.coat && (!worn.jacket || coatOverJacket))
+    const modelCoat = Boolean(worn.coat && !drapedCoat)
+    this.modelCoat = modelCoat
+    const body = this.meshes.body
+    body.visible = this.view !== "ghost"
+    body.material.userData.hideJacket.value = tailored || modelCoat ? 1 : 0
+    body.material.userData.hideCasual.value = 0
+    // Pants are draped, so the body under them stays (the cloth lies on it).
+    body.material.userData.hideTrousers.value = 0
+
+    let under = null
+    if (tailored) {
+      const ease = fitJacket(this.calibration, this.fitted, worn.jacket.size, { layer: "jacket" })
+      this.dressMesh("jacket", worn.jacket, ease, "jacket")
+      under = drawnSize(this.calibration, this.fitted, ease, "jacket")
+    }
+    if (modelCoat) {
+      const ease = fitJacket(this.calibration, this.fitted, worn.coat.size, { over: under })
+      // A coat drawn from a jacket can only stretch so far; the verdict gives its real length.
+      ease["ease-length"] = Math.min(ease["ease-length"], 30)
+      // The sleeves have no width of their own to grow, so over a jacket the whole coat stands a little
+      // further out, or the jacket would show through it.
+      const inflate = worn.jacket ? 0.014 : 0.003
+      this.materials.coat.cloth.userData.inflate.value = inflate
+      this.materials.coat.fitMap.userData.inflate.value = inflate
+      this.dressMesh("coat", worn.coat, ease)
+    }
+    // The model's trousers are only measured now, for a studio photo (which draws them); on screen they're draped.
+    if (worn.trousers) this.lastEase.trousers = fitTrousers(this.calibration, this.fitted, worn.trousers.size)
+    this.meshes.jacket.visible = tailored
+    this.meshes.coat.visible = modelCoat
+    this.meshes.trousers.visible = false
+
+    // The top, unless the suit's jacket or a coat is over it (those are drawn from the model, and would show
+    // it through them), over the pants or tucked into them; and over the top, a casual jacket.
+    const top = coatOverJacket ? worn.jacket : worn.top && !tailored && !modelCoat ? worn.top : null
+    this.hiddenTop = Boolean(worn.top && top !== worn.top)
+    // A romper's or jumpsuit's top hangs over its shorts or pants, in the same cloth, so they read as one
+    // piece (it isn't tucked: there's nothing to tuck).
+    this.onePiece = Boolean(worn.top?.onePiece && worn.trousers?.onePiece) && !coatOverJacket
+    const tuck = (this.tucked || Boolean(worn.top?.bodysuit)) && !this.onePiece && !coatOverJacket && this.canTuck()
+    this.order = tuck ? TUCKED_LAYERS : LAYERS
+    const items = {
+      bottom: worn.trousers ?? null,
+      top: top && tuck ? { ...top, tuck: { style: worn.trousers.style ?? "trousers", size: worn.trousers.size, cut: worn.trousers.cut ?? null } } : top,
+      outer: drapedCoat ? { ...worn.coat, style: "coat" } : drapedJacket ? worn.jacket : null
+    }
+    this.dressFeet(worn.shoes ?? null, worn.socks ?? defaultSocks(worn))
+    this.beltItem = worn.belt ?? null
+    this.bagItem = worn.bag ?? null
+    for (const slot of this.order) this.dressDraped(slot, items[slot])
+    this.announceBusy()
+  }
+
+  // Something has changed that the clothes on screen don't match yet (a new pose, body, size or garment): say
+  // so now, so the page's veil is up before the next frame is drawn. Left to the frame loop, it's said only once
+  // that frame's draping step is done, and the first step into a new pose or a new drape (building the body's
+  // collision field) is its longest: the mannequin would show in its new pose or shape with the clothes still
+  // as they were, for a good part of a second.
+  announceBusy() {
+    if (this.busy || this.settled) return
+    this.busy = true
+    this.onDrape?.(this.busyPhase(), false)
+  }
+
+  // What's being done first, in the drape's words ("sewing", "settling" or "posing").
+  busyPhase() {
+    for (const slot of this.order ?? LAYERS) {
+      if (this.waiting[slot]) return "sewing"
+      const d = this.slots[slot]
+      if (!d) continue
+      if (!d.top.done) return d.top.phase ?? "sewing"
+      if (d.posedAs !== this.pose || d.posing) return "posing"
+    }
+    return "posing"
+  }
+
+  // Shoes and socks, lofted round the mannequin's feet and legs as they stand (see accessories.js), then hung
+  // on the calves' bones so they move with the legs. Rebuilt when the body or what's worn changes.
+  dressFeet(shoes, socks) {
+    const key = JSON.stringify([shoes && [shoes.style, shoes.name, shoes.words, shoes.color, shoes.sole, shoes.fabric, shoes.shoeSide && { ...shoes.shoeSide, open: shoes.shoeSide.open ? shoes.shoeSide.openShare ?? 1 : null }, (shoes.shoeViews ?? []).map(v => v.kind), Boolean(shoes.shoeDepth)], socks && [socks.style, socks.color],
+      this.fitted.scale, this.fitted.influences, this.bodyType])
+    if (key === this.feet.key) return
+    this.feet.key = key
+    for (const mesh of this.feet.meshes) {
+      mesh.parent?.remove(mesh)
+      mesh.geometry.dispose()
+      for (const m of [mesh.material].flat()) m.dispose()
+    }
+    this.feet.meshes = []
+    this.feet.shoes = {}
+    this.feet.rise = null
+    this.feet.dressing = null
+    // (Nothing on the feet: the skin the shoes hid is drawn again.)
+    if (!shoes && !socks) { this.coverFeet(null, null, null); this.applyPose(); return }
+    // Built on the mannequin as it stands, flat on the floor, whatever the pose shown.
+    const pose = this.pose
+    this.pose = "standing"
+    this.applyPose()
+    let body = bodySnapshot(this.meshes.body)
+    let frame = bodyFrame(body)
+    // The shoe's last (lasts.js): its family from the listing's words, its sole, heel, collar and toe
+    // from the side photo, over the drawing style.
+    const made = shoes && lastFor(shoes.words ?? `${shoes.name ?? ""} ${shoes.family ?? ""}`, shoes.style, shoes.shoeSide, shoes.name ?? "")
+    const last = shoes && { style: shoes.style, family: made.family, ...made.params }
+    this.feet.last = last
+    // A shaft's height from the listing's words ("knee-high", "mid-calf"), against this body's knee.
+    if (last) {
+      const share = shaftShare(shoes.words ?? shoes.name)
+      const knee = this.model.getObjectByName("calf_l")?.getWorldPosition(new THREE.Vector3()).y
+      if (share && knee) {
+        last.shaftTo = frame.floor + (knee - frame.floor) * share
+        last.back = Math.max(last.back ?? 0, last.shaftTo - frame.floor)
+        last.front = Math.max(last.front ?? 0, last.shaftTo - frame.floor - 0.02)
+      }
+    }
+    const heeled = last?.heel > 0.012
+    // A shoe shaped from its photo (hull.js) stands as photographed, heel and all: the foot is pitched to
+    // the heel first, the body lifted so the toe stays on the floor, and the shoe built round the foot as
+    // it then stands, hung on the foot's bone.
+    const photoShaped = Boolean(shoes?.shoeSide)
+    if (photoShaped && heeled) {
+      const ankle = this.model.getObjectByName("foot_l")?.getWorldPosition(new THREE.Vector3())
+      this.feet.rise = riseForHeel(body, frame, "L", last.heel * (frame.top - frame.floor) / 1.76, ankle, last)
+      if (this.feet.rise) {
+        this.applyPose()
+        body = bodySnapshot(this.meshes.body)
+        // (The floor stays the floor: the pitched foot's toes dip below it, into the toe box.)
+        frame = { ...bodyFrame(body), floor: frame.floor }
+      }
+    }
+    // Hung on the calf's bone, to move with the leg; a heeled shoe on the foot's, which the heel pitches.
+    const hang = (mesh, side, onFoot = false) => {
+      mesh.castShadow = mesh.receiveShadow = true
+      mesh.frustumCulled = false
+      const bone = this.model.getObjectByName(`${onFoot ? "foot" : "calf"}_${side.toLowerCase()}`) ?? this.model
+      bone.attach(mesh)
+      this.feet.meshes.push(mesh)
+      return mesh
+    }
+    // (Each build of the feet numbered: a photo still being laid on an earlier one isn't laid on this.)
+    const generation = this.feet.generation = (this.feet.generation ?? 0) + 1
+    // A closed shoe flat underfoot is fitted from its family's template (templates.js): the shoe as it's made, its
+    // sole's edge, collar, tongue, laces and seams. While the template is on its way the shoe is built on a last
+    // for now, not painted, and built again when it comes.
+    const onTheLast = Boolean(photoShaped && onLast(last, shoes.shoeSide))
+    // (A heel, a sandal or a slide, not built on a last: from a scanned one when there is one, templates.js's scanFor.)
+    const scanned = photoShaped && !onTheLast ? scanFor(last, shoes.shoeSide, shoes.words ?? shoes.name ?? "") : null
+    const chosen = onTheLast ? templateFor(last, shoes.shoeSide, shoes.words ?? shoes.name ?? "") : scanned ? { name: scanned, own: false, scan: true } : null
+    const templateName = chosen?.name ?? null
+    const template = templateName ? templateNow(templateName) : null
+    // (A template chosen over the family's by the photo's outline keeps its own lacing, not the words'.)
+    const fitted = chosen && !chosen.own ? { ...last, laces: undefined } : last
+    const waiting = Boolean(templateName) && template === undefined
+    if (waiting) {
+      this.feet.dressing = key
+      templatesIndexed().then(() => loadTemplate(templateName)).finally(() => {
+        if (this.feet.key !== key || this.feet.generation !== generation) return
+        this.feet.key = null
+        this.dressFeet(shoes, socks)
+      })
+    }
+    // An open shoe, by its family, the listing's words or the openings its side photo shows (a strappy or a thong
+    // heel, a mule, a slingback: a pump by its heel), and not one a scan stands for (a clog, a closed mule).
+    const saidOpen = /\b(?:sandals?|slides?|flip[- ]?flops?|thongs?|mules?|sling[- ]?backs?|slippers?)\b/i.test(`${shoes?.name ?? ""} ${shoes?.words ?? ""}`.slice(0, 200))
+    const openShoe = photoShaped && !chosen && !onTheLast && shoes.shoeSide.open && (OPEN_SHAPED.has(last.family) || saidOpen || (last.family === "pump" && (shoes.shoeSide.openShare ?? 0) > 0.1))
+    for (const side of ["L", "R"]) {
+      if (socks) hang(new THREE.Mesh(sockGeometry(body, frame, side, socks.style), accessoryMaterial("knit", socks.color)), side)
+      if (shoes) {
+        const boot = shoes.style === "boot"
+        // A lace-up boot's leather is nearly always matte (nubuck, oiled or suede), not a shoe's polish.
+        const upper = accessoryMaterial(boot && shoes.fabric === "leather" ? "suede" : shoes.fabric === "leather" || shoes.fabric === "suede" ? shoes.fabric : "canvas", shoes.color)
+        // A loafer's sole is leather; others are rubber (a boot's lug sole too).
+        const sole = accessoryMaterial(shoes.style === "loafer" ? "leather" : "rubber", shoes.sole ?? (shoes.style === "sneaker" || shoes.style === "hightop" ? "#ecebe6" : "#2a2522"))
+        // A boot's laces are a shade darker than its leather (and read against it); a sneaker's match its upper.
+        const laces = accessoryMaterial("canvas", shoes.laces ?? (boot ? `#${new THREE.Color(shoes.color).offsetHSL(0, -0.1, -0.24).getHexString()}` : shoes.color))
+        // A boot's padded collar, in a darker leather unless the photo shows its own colour.
+        const collar = accessoryMaterial("leather", shoes.collar ?? `#${new THREE.Color(shoes.color).offsetHSL(0, -0.25, -0.3).getHexString()}`)
+        if (boot) { sole.roughness = 0.9; sole.clearcoat = 0 }
+        collar.clearcoat = 0.1
+        collar.roughness = 0.6
+        // Brass eyelets, bright enough to catch the light.
+        const eyelets = accessoryMaterial("metal", "#b6975a")
+        eyelets.roughness = 0.35
+        // Built from the shop's side photo when there's one (see accessories.js), else from the style alone.
+        const relief = !(shoes.shoeViews ?? []).some(v => v.kind === "top")
+        // With a side photo the shoe's shape is carved from it and the shop's other views (hull.js: the
+        // outline exact, the visible side's relief from the photo's depth, the far side mirrored, the width
+        // from a top, front or back photo when there is one); with none, drawn from the style.
+        const views = (shoes.shoeViews ?? []).filter(v => v.shoes?.[0]?.silhouette)
+        // A closed shoe flat underfoot is built on a last fitted to the photo (last_shape.js): a sole, walls and a
+        // toe box, not a block carved and rounded every way.
+        const geometry = (template && templateGeometry(body, frame, side, shoes.shoeSide, views, fitted, template))
+          || (onTheLast && lastGeometry(body, frame, side, shoes.shoeSide, views, last))
+          // A sandal or a slide whose side photo shows its openings: a footbed and straps hugging the foot
+          // (open_shape.js), not a carved block.
+          || (openShoe && openGeometry(body, frame, side, shoes.shoeSide, views, last, { said: saidOpen || (shoes.shoeSide.openShare ?? 0) > 0.25 }))
+          || (photoShaped && hullGeometry(body, frame, side, shoes.shoeSide, views, last, { depth: shoes.shoeDepth ?? null }))
+          || (photoShaped && photoShoeGeometry(body, frame, side, shoes.shoeSide, last, { laces: relief })) || shoeGeometry(body, frame, side, last)
+        this.feet.shoes[side] = hang(new THREE.Mesh(geometry, [sole, upper, laces, collar, eyelets]), side, heeled)
+        if (shoes.style === "sandal" && !photoShaped) hang(new THREE.Mesh(strapGeometry(body, frame, side), upper.clone()), side, heeled)
+      }
+    }
+    // The mannequin's foot is rigid and its toes thick, and a shoe keeps its photo's shape; where the foot
+    // would show through the shoe, under its topline (and a little over it at the toe box), the skin isn't
+    // drawn. An open sandal shows the whole foot.
+    this.coverFeet(body, frame, shoes && (last.family !== "sandal" || Object.values(this.feet.shoes ?? {}).some(m => m?.geometry?.userData?.photo?.open)) ? this.feet.shoes : null)
+    // A heel: the foot pitched toes down by the heel's height (see accessories.js's heelRise), the body
+    // lifted to keep the toe on the floor, and a stem built under each heel as it then stands.
+    if (heeled && !photoShaped) {
+      const ankle = this.model.getObjectByName("foot_l")?.getWorldPosition(new THREE.Vector3())
+      this.feet.rise = ankle && heelRise(this.feet.shoes.L, ankle, last.heel * (frame.top - frame.floor) / 1.76, frame.floor)
+      if (this.feet.rise) {
+        this.applyPose()
+        const words = shoes.words ?? ""
+        const blocky = /block|chunky|platform|wedge/i.test(words) || last.family !== "pump"
+        const stemWidth = /stiletto/i.test(words) ? 0.35 : /kitten/i.test(words) ? 0.45 : blocky ? 0.9 : 0.6
+        for (const side of ["L", "R"]) {
+          const stem = heelStemGeometry(this.feet.shoes[side], frame.floor, { stem: stemWidth, taper: blocky ? 1 : 0.7 })
+          // A pump's heel is wrapped in its own leather; a boot's or a wedge's is its sole.
+          if (stem) hang(new THREE.Mesh(stem, (last.family === "pump" || last.family === "flat" ? this.feet.shoes[side].material[1] : this.feet.shoes[side].material[0]).clone()), side, true)
+        }
+      }
+    }
+    this.pose = pose
+    this.applyPose()
+    if (shoes?.shoePhoto && shoes.shoeSide && !waiting) this.wearShoePhoto(shoes, key, generation)
+  }
+
+  // Marks the body's points inside the shoes (see dressFeet): _cover_shoe, which mannequinMaterial hides.
+  coverFeet(body, frame, shoes) {
+    const geometry = this.meshes.body.geometry
+    const n = geometry.attributes.position.count
+    let attribute = geometry.getAttribute("_cover_shoe")
+    if (!attribute || attribute.count !== n) { attribute = new THREE.Float32BufferAttribute(new Float32Array(n), 1); geometry.setAttribute("_cover_shoe", attribute) }
+    const cover = attribute.array
+    cover.fill(0)
+    const photos = shoes && ["L", "R"].map(side => [side, shoes[side]?.geometry.userData.photo, shoes[side]?.geometry]).filter(([, p]) => p?.within)
+    if (photos?.length) {
+      const s = (frame.top - frame.floor) / 1.76
+      for (let i = 0; i < n; i++) {
+        const x = body.positions[3 * i], y = body.positions[3 * i + 1], z = body.positions[3 * i + 2]
+        if (y > frame.floor + 0.25 * s) continue
+        for (const [side, p] of photos) {
+          if ((side === "L") !== x > 0 || Math.abs(x - p.centreX) > p.widest + 0.01 * s) continue
+          const u = (z - p.back) / p.length
+          if (u < -0.02 || u > 1.02) continue
+          // Hidden under the shoe's topline, where its walls rise round the foot (hull.js); over the toe box
+          // (the front 40%) the rigid toes may stand proud of a low shoe, and are hidden with shoe beneath.
+          // An open shoe carved through its openings (hull.js): the skin is hidden only where the shoe is, so
+          // the foot shows through a sandal's straps and a slingback's back.
+          // (And under its topline wherever its side photo shows the shoe, not the backdrop: a pump's closed toe
+          // hides the mannequin's rigid toes even where they stand out of the carved toe box.)
+          const uc = Math.min(1, Math.max(0, u))
+          if (p.open) {
+            if (p.covers?.(x, y, z) || p.within(x, y, z) || p.within(x, y - 0.006 * s, z) || (y <= p.top(uc) && p.shoeAt?.(uc, y) === true) || y <= frame.floor + 0.004 * s) { cover[i] = 1; break }
+            continue
+          }
+          // By how far under (a centimetre's ramp): the leg's cut runs along the topline between the skin's
+          // points (vCovered over a half), not round whole triangles in steps.
+          let hidden = Math.min(1, Math.max(0, 0.5 + (p.top(uc) - y) / (0.01 * s)))
+          if (hidden < 1 && u > 0.6) for (let d = 0.004 * s; hidden < 1 && d <= 0.03 * s; d += 0.004 * s) if (p.within(x, y - d, z)) hidden = 1
+          if (hidden > 0) { cover[i] = Math.max(cover[i], hidden); if (hidden >= 1) break }
+        }
+      }
+    }
+    attribute.needsUpdate = true
+    this.meshes.body.material.userData.hideShoe.value = photos?.length ? 1 : 0
+    // The leg's inside, where it shows through what the shoe hides, dark as the shoe's own inside is: under the
+    // shoes' highest point (and a little over it), not white.
+    let line = -Infinity
+    if (photos?.length) for (const [, , geometry] of photos) { const q = geometry.attributes.position.array; for (let i = 1; i < q.length; i += 3) line = Math.max(line, q[i]) }
+    this.meshes.body.material.userData.shoeLine.value = Number.isFinite(line) ? line + 0.01 : -1e9
+  }
+
+  // The shop's side photo on the shoes, once it's read: the logo, stitching and sole as photographed, where
+  // the shoe faces the side; elsewhere (the toe's top, the laces, the heel) the photo's own colours there,
+  // blurred, as the side photo can't show them (see accessories.js#wrapShoePhoto). The laces and eyelets
+  // stay 3D, in the laces' colour from the photo. The shoe keeps its finish (matte suede, glossy leather).
+  async wearShoePhoto(shoes, key, generation) {
+    // (Under way: the photos are being read and laid on, a second or two with the model's outline.)
+    this.feet.dressing = key
+    try { await this.layShoePhoto(shoes, key, generation) } finally { if (this.feet.dressing === key && this.feet.generation === generation) this.feet.dressing = null }
+  }
+
+  async layShoePhoto(shoes, key, generation) {
+    const views = (shoes.shoeViews ?? []).filter(v => ["top", "back", "front"].includes(v.kind))
+    const angledView = (shoes.shoeViews ?? []).find(v => v.kind === "angled")
+    const [read, angled, ...canvases] = await Promise.all([shoeTexture(shoes.shoePhoto), angledView ? readAngled(angledView.photo, angledView.pair) : Promise.resolve(null), ...views.map(v => viewTexture(v.photo))].map(p => p.catch(() => null)))
+    if (!read || this.feet.key !== key || this.feet.generation !== generation) return
+    // The pair at an angle: the camera it was taken from, found from the shoe as built (angled.js). Only on a
+    // shoe built on a last: a carved sandal's or heel's outline is too rough to find the camera by, and the
+    // photo's footbed and straps would be laid where the foot is.
+    const onTheLast = Boolean(this.feet.shoes.L?.geometry?.userData?.photo?.hull?.last)
+    // (Found off the page, photo_remote.js: it's most of a second's sums. The shoes may have changed meanwhile.)
+    const pose = angled && onTheLast ? await photoPose(this.feet.shoes.L.geometry, angled).catch(() => null) : null
+    if (this.feet.key !== key || this.feet.generation !== generation) return
+    this.feet.angled = angled ? { pose: pose && { ...pose, iou: +pose.iou.toFixed(3) } } : null
+    const textureOf = canvas => {
+      const texture = new THREE.CanvasTexture(canvas)
+      texture.colorSpace = THREE.SRGBColorSpace
+      texture.anisotropy = 8
+      return texture
+    }
+    const texture = textureOf(read.canvas)
+    const shown = views.filter((_, k) => canvases[k])
+    const others = Object.fromEntries(shown.map(v => [v.kind, textureOf(canvases[views.indexOf(v)])]))
+    const angledTexture = pose ? textureOf(angled.canvas) : null
+    // A blurred copy of the side photo, read on the CPU for each point's plain colour.
+    const size = 96, blur = document.createElement("canvas")
+    blur.width = blur.height = size
+    const bc = blur.getContext("2d", { willReadFrequently: true })
+    bc.filter = "blur(3px)"
+    bc.drawImage(read.canvas, 0, 0, size, size)
+    const pixels = bc.getImageData(0, 0, size, size).data
+    const colour = new THREE.Color()
+    // The plain colour at a point of the photo: the median over a stretch of its row either side (a
+    // twentieth of the photo), the brightest quarter left out, so a highlight on polished leather, a seam
+    // or a crease doesn't paint a streak on the parts of the shoe the photo can't show.
+    // (Worked out once for each of the blurred copy's pixels that's asked for, not for each of a shoe's ten
+    // thousand points: both shoes' points fall on a few thousand of them, and sorting a patch for every point
+    // held the page for most of a second each time shoes went on.)
+    const reach = Math.max(2, Math.round(size * 0.05)), up = Math.max(2, Math.round(size * 0.08))
+    const plainAt = new Float32Array(3 * size * size), known = new Uint8Array(size * size)
+    const sample = (u, v, out, at) => {
+      const x = Math.min(size - 1, Math.max(0, Math.round(u * (size - 1)))), y = Math.min(size - 1, Math.max(0, Math.round((1 - v) * (size - 1))))
+      const cell = y * size + x
+      if (known[cell]) { out[at] = plainAt[3 * cell]; out[at + 1] = plainAt[3 * cell + 1]; out[at + 2] = plainAt[3 * cell + 2]; return }
+      const picked = []
+      // (A patch, not a row: a knit's or a tread's rows would otherwise paint stripes.)
+      for (let dy = -up; dy <= up; dy++) for (let dx = -reach; dx <= reach; dx++) {
+        const xx = x + dx, yy = y + dy
+        if (xx < 0 || xx >= size || yy < 0 || yy >= size) continue
+        const i = 4 * (yy * size + xx)
+        picked.push([pixels[i], pixels[i + 1], pixels[i + 2], pixels[i] + pixels[i + 1] + pixels[i + 2]])
+      }
+      picked.sort((a, b) => a[3] - b[3])
+      const kept = picked.slice(0, Math.max(1, Math.ceil(picked.length * 0.85)))
+      const mid = kept[Math.floor(kept.length / 2)]
+      colour.setRGB(mid[0] / 255, mid[1] / 255, mid[2] / 255, THREE.SRGBColorSpace)
+      out[at] = plainAt[3 * cell] = colour.r; out[at + 1] = plainAt[3 * cell + 1] = colour.g; out[at + 2] = plainAt[3 * cell + 2] = colour.b
+      known[cell] = 1
+    }
+    const blank = this.feet.blank ??= new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1)
+    blank.needsUpdate = true
+    for (const [foot, mesh] of Object.entries(this.feet.shoes)) {
+      const geometry = wrapShoePhoto(mesh.geometry, shoes.shoeSide, { views: shown, foot })
+      // Where the angled photo lies on this shoe, and how much of it each point takes (none without it).
+      const projected = pose ? projectAngled(geometry, angled, pose, foot === "R") : null
+      geometry.setAttribute("uvAngled", new THREE.BufferAttribute(projected?.uv ?? new Float32Array(2 * geometry.attributes.position.count), 2))
+      geometry.setAttribute("aAngled", new THREE.BufferAttribute(projected?.weight ?? new Float32Array(geometry.attributes.position.count), 1))
+      const plainUV = geometry.attributes.uvPlain.array, uv = geometry.attributes.uv.array, n = geometry.attributes.position.count
+      const plain = new Float32Array(3 * n)
+      for (let i = 0; i < n; i++) sample(plainUV[2 * i], plainUV[2 * i + 1], plain, 3 * i)
+      geometry.setAttribute("aPlain", new THREE.BufferAttribute(plain, 3))
+      // (A scanned shoe's own detail on its plain colour, templates.js's scanGeometry: none on other shoes.)
+      if (!geometry.attributes.aShade) geometry.setAttribute("aShade", new THREE.BufferAttribute(new Float32Array(n).fill(1), 1))
+      // (The padded collar keeps its own leather: the photo shows the roll only edge on.) On a template its
+      // collar, lining and insole take the photo's colour just under the topline round the heel (what the
+      // photo shows of the collar), a shade darker: a grey runner's lining isn't the brown of a boot's, and
+      // from behind the lining shows over the counter.
+      const [sole, upper, laces, collar] = mesh.material
+      const photoFrame = geometry.userData.photo
+      if (collar && photoFrame?.hull?.template && !shoes.collar) {
+        const p = geometry.attributes.position.array, nrm = geometry.attributes.normal.array, s = photoFrame.length / 0.27
+        const sum = [0, 0, 0]
+        let count = 0
+        const upperGroup = geometry.groups.find(g => g.materialIndex === 1), seen = new Set()
+        for (let k = upperGroup?.start ?? 0; upperGroup && k < upperGroup.start + upperGroup.count; k++) {
+          const i = geometry.index.array[k]
+          if (seen.has(i)) continue
+          seen.add(i)
+          const u = (p[3 * i + 2] - photoFrame.back) / photoFrame.length
+          if (u < 0.04 || u > 0.35 || Math.abs(nrm[3 * i]) < 0.5 || p[3 * i + 1] < photoFrame.top(u) - 0.02 * s) continue
+          for (let c = 0; c < 3; c++) sum[c] += plain[3 * i + c]
+          count++
+        }
+        if (count > 20) collar.color.setRGB(...sum.map(v => (v / count) * 0.8))
+      }
+      for (const m of [sole, upper]) {
+        m.map = texture
+        m.color.set(0xffffff)
+        if (m.sheen) m.sheenColor.set(0x5a5a5a)
+        m.onBeforeCompile = shader => {
+          shader.uniforms.uTop = { value: others.top ?? blank }
+          shader.uniforms.uBack = { value: others.back ?? (geometry.userData.backFromFront ? others.front : null) ?? blank }
+          shader.uniforms.uFront = { value: others.front ?? (geometry.userData.frontFromBack ? others.back : null) ?? blank }
+          shader.uniforms.uAngled = { value: angledTexture ?? blank }
+          shader.vertexShader = shader.vertexShader
+            .replace("#include <common>", "#include <common>\nattribute vec3 aPlain;\nattribute vec4 aViews;\nattribute vec2 uvTop;\nattribute vec2 uvBack;\nattribute vec2 uvFront;\nattribute vec2 uvAngled;\nattribute float aAngled;\nattribute float aShade;\nvarying float vShade;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
+            .replace("#include <begin_vertex>", "#include <begin_vertex>\nvShade = aShade;\nvPlain = aPlain;\nvViews = aViews;\nvTop = uvTop;\nvBack = uvBack;\nvFront = uvFront;\nvAngledUv = uvAngled;\nvAngled = aAngled;")
+          shader.fragmentShader = shader.fragmentShader
+            .replace("#include <common>", "#include <common>\nuniform sampler2D uTop;\nuniform sampler2D uBack;\nuniform sampler2D uFront;\nuniform sampler2D uAngled;\nvarying float vShade;\nvarying vec3 vPlain;\nvarying vec4 vViews;\nvarying vec2 vTop;\nvarying vec2 vBack;\nvarying vec2 vFront;\nvarying vec2 vAngledUv;\nvarying float vAngled;")
+            .replace("#include <map_fragment>", `#include <map_fragment>
+              float rest = max( 0.0, 1.0 - vViews.x - vViews.y - vViews.z - vViews.w );
+              diffuseColor.rgb = diffuseColor.rgb * vViews.x + texture2D( uTop, vTop ).rgb * vViews.y + texture2D( uBack, vBack ).rgb * vViews.z + texture2D( uFront, vFront ).rgb * vViews.w + vPlain * vShade * rest;
+              // The angled photo where its camera saw the shoe, over all but the side photo's own side walls.
+              diffuseColor.rgb = mix( diffuseColor.rgb, texture2D( uAngled, vAngledUv ).rgb, clamp( vAngled * ( 1.0 - 0.75 * vViews.x ), 0.0, 1.0 ) );`)
+        }
+        m.customProgramCacheKey = () => "shoe-photo"
+        m.needsUpdate = true
+      }
+      // The laces: the photo's colour where they are in it (the front of the shaft, side on).
+      const index = geometry.index.array, group = geometry.groups.find(g => g.materialIndex === 2)
+      if (group) {
+        const sum = [0, 0, 0], seen = new Set(), one = [0, 0, 0]
+        for (let k = group.start; k < group.start + group.count; k++) {
+          const i = index[k]
+          if (seen.has(i)) continue
+          seen.add(i)
+          sample(uv[2 * i], uv[2 * i + 1], one, 0)
+          for (let c = 0; c < 3; c++) sum[c] += one[c]
+        }
+        // A shade darker: a lace's twist and its gaps shadow it.
+        if (seen.size) laces.color.setRGB(...sum.map(v => (v / seen.size) * 0.66))
+      }
+    }
+    for (const t of this.feet.textures ?? []) t.dispose()
+    this.feet.textures = [texture, ...Object.values(others), ...(angledTexture ? [angledTexture] : [])]
+    this.feet.texture = texture
+  }
+
+  // The body as cloth sees it (see prepareBody), standing in shoes when they're worn: each shoe's outline as the
+  // snapshot took it, for pants' hems to stay off, in place of the bare feet's (accessories.js's standInShoes).
+  // (Not the shoes as they stand on screen: pants are sewn in the sewing pose, the legs apart, and outlines
+  // from the pose shown put each shoe under the other leg's hem, which fell into its own shoe and crossed the
+  // legs over.)
+  prepare(snapshot, options) {
+    const prepared = prepareBody(snapshot.body, snapshot.egg, snapshot.over, options)
+    standInShoes(prepared.frame, snapshot.shoes)
+    return prepared
+  }
+
+  // A dress's attached scarf, once the dress is draped: a long tail hanging from its side at the waist, or
+  // a band round the neck with its two ends hanging down the front. Laid on the dress where it hangs (found
+  // by looking along each height for the dress's surface), in the dress's colour.
+  wearScarf() {
+    const d = this.slots.top
+    const place = d?.top.item.cut?.scarf
+    // Under a jacket or coat it's hidden (laid on the dress, it would poke out through the jacket).
+    const covered = Boolean(this.slots.outer?.shown)
+    // In the colour of the photo laid on the dress, when there is one (the listing's colour can be a neutral
+    // the photo isn't: "White" for a blush print).
+    const color = d?.top.item.photoMap?.color ?? d?.top.item.color
+    const ready = place && !covered && d.shown && d.final && !d.posing && this.view !== "fit"
+    const stamp = ready ? `${d.top.drape.frame}:${d.posedAs}:${place}:${color}` : "none"
+    if (stamp === this.scarf.stamp) return
+    this.scarf.stamp = stamp
+    if (this.scarf.mesh) {
+      this.scarf.mesh.parent?.remove(this.scarf.mesh)
+      this.scarf.mesh.traverse(o => { o.geometry?.dispose(); o.material?.dispose?.() })
+      this.scarf.mesh = null
+    }
+    if (!ready) return
+    const mesh = d.top.mesh
+    mesh.geometry.computeBoundingSphere()
+    const caster = new THREE.Raycaster()
+    const hit = (from, direction) => {
+      caster.set(new THREE.Vector3(...from), new THREE.Vector3(...direction).normalize())
+      const found = caster.intersectObject(mesh, false)[0]
+      return found ? found.point.toArray() : null
+    }
+    const frame = d.frame, m = d.top.pattern.measures
+    const s = this.fitted.scale ?? 1
+    const strips = []
+    // A strip down from `top` (m), hanging `length`, `width` across: each row found on the dress's surface by
+    // looking in along `inward` from outside, `across` the direction it spreads.
+    const strip = (top, length, width, inward, across, sway) => {
+      const rows = 24, positions = [], index = []
+      for (let r = 0; r <= rows; r++) {
+        const t = r / rows, y = top[1] - t * length
+        const w = width * (1 - 0.25 * t)
+        for (const side of [-1, 1]) {
+          const base = [top[0] + across[0] * side * w / 2 + sway * Math.sin(t * Math.PI * 1.3) * across[0], y, top[2] + across[2] * side * w / 2 + sway * Math.sin(t * Math.PI * 1.3) * across[2]]
+          const from = [base[0] - inward[0] * 0.6, y, base[2] - inward[2] * 0.6]
+          const on = hit(from, inward)
+          const p = on ? [on[0] - inward[0] * (0.009 + 0.012 * Math.sin(t * Math.PI)), y, on[2] - inward[2] * (0.009 + 0.012 * Math.sin(t * Math.PI))] : [base[0] - inward[0] * 0.02, y, base[2] - inward[2] * 0.02]
+          positions.push(...p)
+        }
+      }
+      for (let r = 0; r < rows; r++) { const a = 2 * r; index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2) }
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+      geometry.setIndex(index)
+      geometry.computeVertexNormals()
+      strips.push(geometry)
+    }
+    const waistY = frame.hps[1] - (m.shaped?.waistAt ?? 40) / 100
+    const cz = frame.torso?.centreAt?.(waistY) ?? 0
+    if (place === "side") {
+      // From the wearer's left side at the waist, down past the hip.
+      const from = hit([1, waistY, cz], [-1, 0, 0]) ?? [0.18 * s, waistY, cz]
+      strip([from[0], waistY + 0.02, from[2]], 0.62 * s, 0.11 * s, [-1, 0, 0], [0, 0, 1], 0.015)
+    } else {
+      // Round the neck, then both ends down the front.
+      const neckY = frame.hps[1] - 0.02
+      const ring = [], positions = [], index = []
+      const around = 40
+      for (let j = 0; j <= around; j++) {
+        const a = (j / around) * 2 * Math.PI
+        for (const dy of [0.025, -0.02]) {
+          const r = (frame.measures.neck / (2 * Math.PI)) / 100 + 0.018 + (dy < 0 ? 0.012 : 0)
+          positions.push(Math.sin(a) * r, neckY + dy, Math.cos(a) * r + 0.01)
+        }
+      }
+      for (let j = 0; j < around; j++) { const a = 2 * j; index.push(a, a + 2, a + 1, a + 1, a + 2, a + 3) }
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+      geometry.setIndex(index)
+      geometry.computeVertexNormals()
+      strips.push(geometry)
+      void ring
+      for (const side of [-1, 1]) strip([side * 0.035 * s, neckY - 0.01, 0.2], 0.3 * s, 0.07 * s, [0, 0, -1], [1, 0, 0], 0.01 * side)
+    }
+    // Its own cloth, a shade off the dress's so its edges read.
+    const material = accessoryMaterial("knit", "#" + new THREE.Color(color).offsetHSL(0, 0, -0.06).getHexString())
+    const group = new THREE.Group()
+    for (const geometry of strips) {
+      const part = new THREE.Mesh(geometry, material)
+      part.castShadow = part.receiveShadow = true
+      group.add(part)
+    }
+    this.scene.add(group)
+    this.scarf.mesh = group
+  }
+
+  // A shirt's or polo's collar: the stand is draped with the shirt, and the collar itself (its "leaf") is
+  // laid folded down over it from its top edge, round the neck and over the yoke, its points coming down
+  // toward the chest and apart at the front. Laid on the shirt where it hangs, as the scarf is.
+  wearCollars() {
+    // (A shirt dress has a shirt's collar too.)
+    // A shirt's or polo's collar; the photo's word on it outranks the style's (cut.photo.collar, photo_fit.js).
+    // (A collar the listing names, cut.collar "shirt", outranks the photo's outline.)
+    const collared = hasCollar
+    const slots = ["top", "outer"].filter(slot => this.slots[slot] && collared(this.slots[slot].top.item))
+    const ready = slots.filter(slot => { const d = this.slots[slot]; return d.shown && d.final && !d.posing })
+    // With the photo re-draped onto the shirt, the collar takes the colour of the cloth at the photo's top.
+    const colourOf = d => d.redrape?.collar ?? d.top.item.color
+    const stamp = ready.map(slot => `${slot}:${this.slots[slot].top.drape.frame}:${this.slots[slot].posedAs}:${colourOf(this.slots[slot])}`).join("|") + this.view
+    if (stamp === this.collars.stamp) return
+    this.collars.stamp = stamp
+    for (const mesh of this.collars.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose() }
+    this.collars.meshes = []
+    if (this.view === "fit") return
+    for (const slot of ready) {
+      const geometry = collarLeaf(this.slots[slot].top, this.fitted.scale ?? 1)
+      if (!geometry) continue
+      const item = this.slots[slot].top.item
+      const material = accessoryMaterial(["polo", "rugby"].includes(item.style) ? "knit" : "canvas", colourOf(this.slots[slot]))
+      // The collar as photographed (its plaid, its contrast), when the photo has been re-draped on.
+      const strip = this.slots[slot].redrape?.collarStrip
+      if (strip) {
+        material.map = new THREE.CanvasTexture(strip)
+        material.map.colorSpace = THREE.SRGBColorSpace
+        material.color.set("#ffffff")
+      }
+      // (Both sides: its underside shows at its edge and its points.)
+      material.side = THREE.DoubleSide
+      const mesh = new THREE.Mesh(geometry, material)
+      mesh.castShadow = mesh.receiveShadow = true
+      this.scene.add(mesh)
+      this.collars.meshes.push(mesh)
+    }
+  }
+
+  // Where a garment's drape leaves it a hair outside one worn over it, it would show through: those points of
+  // the one underneath aren't drawn. Worked out once both are settled in the pose shown.
+  hideCovered() {
+    const ready = d => d && d.shown && d.final && !d.posing
+    const pairs = this.order === TUCKED_LAYERS ? [["top", "outer"], ["bottom", "outer"]] : [["bottom", "top"], ["top", "outer"], ["bottom", "outer"]]
+    const stamp = pairs.map(([i, o]) => (ready(this.slots[i]) && ready(this.slots[o]) ? `${this.slots[i].top.drape.frame}/${this.slots[o].top.drape.frame}/${this.slots[o].posedAs}` : "-")).join(":") + this.order.join()
+    if (stamp === this.coverStamp) return
+    this.coverStamp = stamp
+    for (const slot of LAYERS) {
+      const inner = this.slots[slot]
+      if (!ready(inner)) continue
+      let covered = null, keep = null
+      for (const [i, o] of pairs) {
+        if (i !== slot || !ready(this.slots[o])) continue
+        // (And where its folds would stand out through what's over it: coveredPoints' keep.)
+        keep ??= new Float32Array(inner.top.cloth.points.length).fill(1)
+        const c = coveredPoints(inner.top, this.slots[o].top, { keep })
+        covered = covered ? covered.map((v, k) => Math.max(v, c[k])) : c
+      }
+      inner.top.setCovered(covered)
+      inner.top.setFoldKeep(keep)
+    }
+  }
+
+  // The belt, laid round the pants' waistband as they're draped now, when nothing hangs over it (a top worn
+  // out over the pants would). Redone as the pants move.
+  wearBelt() {
+    this.wearDressBelt()
+    const bottom = this.slots.bottom
+    const covered = Boolean(this.slots.top) && this.order !== TUCKED_LAYERS
+    const ready = this.beltItem && bottom?.shown && bottom.final && !bottom.posing && !covered && this.view !== "fit"
+    const stamp = ready ? `${bottom.top.drape.frame}:${bottom.posedAs}:${this.beltItem.color}:${this.beltItem.buckle}` : "none"
+    if (stamp === this.belt.stamp) return
+    this.belt.stamp = stamp
+    for (const part of [this.belt.mesh, this.belt.buckle]) {
+      if (!part) continue
+      this.scene.remove(part)
+      part.geometry.dispose()
+      part.material.dispose()
+    }
+    this.belt.mesh = this.belt.buckle = null
+    if (!ready) return
+    const { drape, cloth } = bottom.top
+    const at = i => { const j = drape.map ? drape.map[i] : i; return [drape.x[3 * j], drape.x[3 * j + 1], drape.x[3 * j + 2]] }
+    const rim = (cloth.edges["waistband/rim"] ?? []).map(at)
+    const seam = Object.keys(cloth.edges).filter(k => k.startsWith("waistband/sewn_")).flatMap(k => cloth.edges[k].map(at))
+    const s = this.fitted.scale ?? 1
+    const belt = beltGeometry(rim, seam, { width: 0.033 * s, out: 0.004, thick: 0.004 })
+    if (!belt) return
+    this.belt.mesh = new THREE.Mesh(belt.geometry, accessoryMaterial(this.beltItem.fabric === "canvas" ? "canvas" : "leather", this.beltItem.color))
+    const buckle = new THREE.Mesh(buckleGeometry(belt.buckle.height), accessoryMaterial("metal", this.beltItem.buckle === "gold" ? "#c9a75e" : "#c7c9cc"))
+    buckle.position.fromArray(belt.buckle.position)
+    this.belt.buckle = buckle
+    for (const part of [this.belt.mesh, buckle]) {
+      part.castShadow = part.receiveShadow = true
+      this.scene.add(part)
+    }
+  }
+
+  // The bag (bag.js), put on over what's worn once that's sewn, settled and in the pose shown: built on the body
+  // and the cloth as they are now, at its real size, and built again when any of them changes. While they're
+  // changing it's off (a strap lies on the cloth where it ends up).
+  wearBag() {
+    const item = this.bagItem
+    const ready = Boolean(item) && this.settled && this.view !== "fit"
+    const stamp = !item ? "none" : !ready ? "wait" : JSON.stringify([
+      item.name, item.style, item.carry ?? null, item.color, item.strap, item.bagSize, item.bagShape && [item.bagShape.aspect, item.bagShape.top, item.bagShape.left, item.bagShape.handle],
+      this.pose, this.bodyType, this.fitted.scale, this.fitted.influences, this.feet.rise?.lift ?? 0,
+      // (What's worn under it: any change to that is sewn and settled again first, and it's off meanwhile.)
+      outfitSignature(this.outfit), this.tucked
+    ])
+    if (stamp === this.bag.stamp) return
+    this.bag.stamp = stamp
+    for (const mesh of this.bag.meshes) {
+      this.scene.remove(mesh)
+      mesh.geometry.dispose()
+      for (const m of new Set([mesh.material].flat())) m.dispose()
+    }
+    this.bag.meshes = []
+    if (!ready) { this.still?.reset(); return }
+    const body = bodySnapshot(this.meshes.body)
+    const frame = bodyFrame(body)
+    const cloth = Object.values(this.slots).filter(d => d?.shown).map(d => d.top.drape.x)
+    const ground = strapGround(body, frame, cloth)
+    const style = item.style ?? "tote"
+    const how = bagWay(style, item.carry, item.bagShape)
+    const size = bagSize(style, item.bagSize, item.bagShape)
+    // (On the shoulder it's pressed flatter, between the arm and the body.)
+    if (how === "shoulder") size.depth = Math.min(size.depth, SHOULDER_DEPTH * (frame.top - frame.floor) / 1.76)
+    const surface = bagSurface(item.bagShape, size, { flat: how === "back" ? 0.84 : how === "chest" ? 0.76 : how === "hip" ? 0.7 : 0.5 })
+    const worn = wearBag(style, size, surface, item.bagShape, body, frame, ground, { how, drop: item.bagSize?.drop ?? null, grip: this.carry && how === "hand" ? this.gripOf(this.carry) : null })
+    const fabric = item.fabric === "leather" || item.fabric === "suede" ? item.fabric : "canvas"
+    // Its front and its back take the shop's photo (laid on when it's read: its colour till then; the back has
+    // it turned round, bagSurface), as a bag's two faces are made alike; its straps, their colour.
+    const front = accessoryMaterial(fabric, item.bagShape && this.bag.texture && this.bag.photo === item.bagPhoto ? "#ffffff" : item.color)
+    if (item.bagShape && item.bagPhoto) {
+      if (this.bag.photo !== item.bagPhoto) {
+        this.bag.texture?.dispose()
+        this.bag.horns?.dispose()
+        this.bag.texture = this.bag.horns = null
+        this.bag.photo = item.bagPhoto
+        new THREE.TextureLoader().load(item.bagPhoto, texture => {
+          if (this.bag.photo !== item.bagPhoto) { texture.dispose(); return }
+          texture.colorSpace = THREE.SRGBColorSpace
+          texture.anisotropy = 4
+          this.bag.texture = texture
+          // (Built again with it: the stamp is cleared.)
+          this.bag.stamp = null
+          this.start()
+        })
+      } else if (this.bag.texture) {
+        front.map = this.bag.texture
+        front.sheen = 0
+      }
+    }
+    const mesh = new THREE.Mesh(bagGeometry(surface, worn.place, size), [front, front])
+    const parts = [mesh]
+    // A hobo's horns: a card cut to their outline, wearing the photo there, from both sides.
+    if (surface.card && front.map) {
+      this.bag.horns ??= hornTexture(this.bag.texture.image, item.bagShape.loop.horns)
+      const material = accessoryMaterial(fabric, "#ffffff")
+      Object.assign(material, { map: this.bag.horns, alphaTest: 0.6, side: THREE.DoubleSide, sheen: 0 })
+      parts.push(new THREE.Mesh(bagCardGeometry(surface, worn.place, size), material))
+    }
+    for (const strap of worn.straps) {
+      const geometry = bagStrapGeometry(strap)
+      if (geometry) parts.push(new THREE.Mesh(geometry, accessoryMaterial(fabric === "suede" ? "leather" : fabric, item.strap ?? item.color)))
+    }
+    for (const part of parts) {
+      part.castShadow = part.receiveShadow = true
+      part.frustumCulled = false
+      this.scene.add(part)
+    }
+    this.bag.meshes = parts
+    this.bag.worn = { how: worn.worn, size }
+    this.still?.reset()
+  }
+
+  // Where a closed hand holds a handle, from its bones as posed: { point: in the crook of the fingers (between
+  // their knuckles and their middle joints, nearer the joints, where a strap comes to rest), along: the way the
+  // knuckles run, level ([x, z]): a handle lies across the hand that way }. null without the bones.
+  gripOf(side) {
+    const at = name => this.model.getObjectByName(`${name}_${side}`)?.getWorldPosition(new THREE.Vector3()) ?? null
+    const fingers = ["index", "middle", "ring", "pinky"]
+    const knuckles = fingers.map(finger => at(`${finger}_01`)), joints = fingers.map(finger => at(`${finger}_02`))
+    if (knuckles.includes(null) || joints.includes(null)) return null
+    const mean = list => list.reduce((sum, v) => sum.add(v), new THREE.Vector3()).multiplyScalar(1 / list.length)
+    const crook = mean(joints).lerp(mean(knuckles), 0.25)
+    const along = knuckles[0].clone().sub(knuckles[3])
+    along.y = 0
+    if (along.lengthSq() < 1e-8) return null
+    along.normalize()
+    return { point: [crook.x, crook.y + 0.008 * (this.fitted.scale ?? 1), crook.z], along: [along.x, along.z] }
+  }
+
+  // A dress's own belt (its cut's belt: "buckle", or "tie" for a tie belt or a sash), laid round its waist as
+  // it's draped now: a narrow band of its cloth's colour, a little darker, with a silver buckle at the front
+  // for a buckled one. Its waist is where the pattern was cut in to it (pattern.js's shapeSkirt).
+  wearDressBelt() {
+    const d = this.slots.top
+    const kind = d?.top.item.cut?.belt
+    const waistAt = d?.top.pattern?.measures?.shaped?.waistAt
+    const ready = kind && waistAt && d.shown && d.final && !d.posing && this.view !== "fit"
+    const stamp = ready ? `${d.top.drape.frame}:${d.posedAs}:${kind}:${d.top.item.color}` : "none"
+    if (stamp === this.dressBelt.stamp) return
+    this.dressBelt.stamp = stamp
+    for (const part of [this.dressBelt.mesh, this.dressBelt.buckle]) {
+      if (!part) continue
+      this.scene.remove(part)
+      part.geometry.dispose()
+      part.material.dispose()
+    }
+    this.dressBelt.mesh = this.dressBelt.buckle = null
+    if (!ready) return
+    const { drape, cloth } = d.top
+    const at = i => { const j = drape.map ? drape.map[i] : i; return [drape.x[3 * j], drape.x[3 * j + 1], drape.x[3 * j + 2]] }
+    // The body's points a little above and below the waist (pattern cm), front and back.
+    const body = new Set(["front", "back"].map(name => cloth.panels.indexOf(name)).filter(i => i >= 0))
+    const near = y => cloth.points.flatMap(([, py], i) => (body.has(cloth.panel[i]) && Math.abs(py - y) < 0.9 ? [at(i)] : []))
+    const s = this.fitted.scale ?? 1
+    const belt = beltGeometry(near(-waistAt + 1.6), near(-waistAt - 1.6), { width: 0.024 * s, out: 0.003, thick: 0.003 })
+    if (!belt) return
+    const color = new THREE.Color(d.top.item.color).offsetHSL(0, 0, -0.06)
+    this.dressBelt.mesh = new THREE.Mesh(belt.geometry, accessoryMaterial(kind === "tie" ? "canvas" : "leather", color))
+    const parts = [this.dressBelt.mesh]
+    if (kind === "buckle") {
+      const buckle = new THREE.Mesh(buckleGeometry(belt.buckle.height), accessoryMaterial("metal", "#c7c9cc"))
+      buckle.position.fromArray(belt.buckle.position)
+      this.dressBelt.buckle = buckle
+      parts.push(buckle)
+    }
+    for (const part of parts) {
+      part.castShadow = part.receiveShadow = true
+      this.scene.add(part)
+    }
+  }
+
+  // Draping
+
+  // The top's slot (the page checks on it).
+  get draped() {
+    return this.slots.top ?? this.slots.outer
+  }
+
+  // Whether everything draped is sewn, settled and in the pose shown.
+  get settled() {
+    return Object.keys(this.waiting).length === 0 && Object.values(this.slots).every(d => !d || (d.top.done && d.posedAs === this.pose && !d.posing))
+  }
+
+  // What's still to come that will change how the clothes look, once they've settled, or null: the page still
+  // reading a link's photos (hold: a top's cut, a shoe's shape and a photo to lay on come of it, and the
+  // clothes are sewn again for some), shoes being built or their photo laid on, a garment's shop photos laid on
+  // it point for point (advanceRedrape), its colour metered to them (advanceMeter).
+  pending() {
+    if (this.holds > 0) return "reading"
+    if (this.feet?.dressing) return "shoes"
+    for (const slot of this.order) {
+      const d = this.slots[slot]
+      if (!d?.top) continue
+      if (!d.shown) return "showing"
+      if (REDRAPE_ON && d.top.photos && d.restX && (!["done", "off"].includes(d.redrapeState) || d.redrapeSwap || d.redrapeSwapping)) return "photos"
+      if (METER_ON && d.top.item?.photoCloth && (d.metering || d.metered !== this.meterKey(d))) return "colour"
+    }
+    return null
+  }
+
+  // Whether what's on is as it will stay: settled, and nothing still to come (or it's been waited for long
+  // enough: HOLD_MOST). The page's veil stays up until then (advanceDrape says "done" only then), so the clothes
+  // are seen once, finished: not sewn from the listing's words, shown, then covered and sewn again as the photo
+  // showed them, nor shown plain and then with their photo and their colour.
+  get finished() {
+    if (!this.settled) return false
+    return !this.pending() || (this.pendingSince !== null && performance.now() - this.pendingSince > HOLD_MOST)
+  }
+
+  // The page is reading something of the clothes' photos that will change them (see pending): the returned
+  // function says it's done. Said while the clothes are on and shown, the veil goes up now, as for a new drape.
+  hold() {
+    this.holds++
+    if (!this.busy) { this.busy = true; this.onDrape?.(this.settled ? "finishing" : this.busyPhase(), false) }
+    let held = true
+    return () => {
+      if (!held) return
+      held = false
+      this.holds--
+      this.start()
+    }
+  }
+
+  // The layers draped under this one.
+  under(slot) {
+    return (this.order === TUCKED_LAYERS ? TUCKED_OVER : OVER)[slot].map(s => this.slots[s]).filter(Boolean)
+  }
+
+  // slot: "bottom" (pants), "top" or "outer" (a casual jacket). item: the outfit item drawn there, or null.
+  dressDraped(slot, item) {
+    if (!item) {
+      this.removeDraped(slot)
+      delete this.waiting[slot]
+      return
+    }
+    const style = slot === "bottom" ? item.style ?? "trousers" : DRAPED_STYLES.includes(item.style) ? item.style : "tee"
+    // Each layer is sewn over the ones under it, so a new one under it is a new drape for it too.
+    const over = this.under(slot).map(d => d.key)
+    const key = JSON.stringify([slot, style, item.size, item.fabric, item.cut ?? null, item.zip ?? false, item.puffer ?? false, item.tuck ?? null, this.fitted.scale, this.fitted.influences, over, this.feet.key])
+    if (this.slots[slot]?.key !== key && this.waiting[slot]?.key !== key) {
+      // The garment shown stays until the new one is sewn and in the pose shown, so nothing jumps about.
+      this.removeDraped(slot, { keepShown: true })
+      const spec = { slot, key, item: { kind: item.kind, style, size: item.size, color: item.color, fabric: item.fabric, cut: item.cut ?? null, zip: Boolean(item.zip), puffer: Boolean(item.puffer), tuck: item.tuck ?? null, photoSize: item.photoSize ?? null } }
+      // It waits for the layers under it to be sewn, then is sewn over them.
+      if (this.under(slot).some(d => !d.top.done)) this.waiting[slot] = spec
+      else {
+        delete this.waiting[slot]
+        this.startDrape(spec)
+      }
+    }
+    const d = this.slots[slot]
+    if (!d) return
+    // (The colour the drape began with is the listing's guess until the photo is read: the collar's leaf, a
+    // scarf and a belt are drawn in this one, as the cloth is.)
+    d.top.item.color = item.color
+    d.top.setColor(item.color)
+    // The cloth as its shop photographed it, which the drawn cloth is metered to (advanceMeter).
+    d.top.item.photoCloth = item.photoCloth ?? null
+    // The store's photos, for re-draping (advanceRedrape); the drape's own record doesn't carry them.
+    // (A romper's or jumpsuit's halves share its photos, each its part: above the waist or below it.)
+    const was = d.top.photos
+    d.top.photos = item.photo ? { front: item.photo, back: item.back_photo ?? null, part: item.photoPart ?? null, worn: Boolean(item.photoWorn) } : null
+    // Its photos taken away (the page decided they're better not laid on): back to its colour and print.
+    if (!d.top.photos && d.redrapeState) { d.redrape = null; d.redrapeState = "off" }
+    // Its photos changed once the re-draping had begun (the front's reading came after: its graphic painted
+    // out of the photo to lay on, the graphic laid over it): laid on again from the new ones, on the same
+    // hanging (advanceRedrape). Laid from the old, a chest print was laid twice, once torn.
+    else if (was && d.top.photos && d.redrapeState && d.redrapeState !== "off" && (was.front !== d.top.photos.front || was.back !== d.top.photos.back)) d.redrapeSwap = true
+    // With the photographs re-draped onto it (d.redrape), the cloth shows them and nothing else is laid on.
+    // (A placed print stays on over the re-draped photo when the photo it was laid from had it painted out:
+    // item.printPlaced, see fitting_room_controller.js.)
+    d.top.setPrint(d.redrape && !item.printPlaced ? null : item.print ?? null, d.redrape ? null : item.backPrint ?? null)
+    // A print all over, as its photo was read (print.js's tile): the re-draping keeps the photo on the sleeves
+    // and the back. Known only once laid on with plain sleeves: laid on again.
+    const allOver = Boolean(item.print?.tile || item.printAllOver)
+    if (allOver && !d.allOverPrint && d.redrapeState === "done" && d.trust?.plain?.some(name => /^sleeve|^back/.test(name))) d.redrapeSwap = true
+    d.allOverPrint = allOver
+    // (The sleeves' graphics kept for the re-draping, which lays them on plain sleeves: see advanceRedrape.)
+    d.sleevePrint = item.sleevePrint ?? null
+    d.top.setSleeves(d.redrape && !d.sleevesPlaced ? null : d.sleevePrint)
+    // (The cuffs' colour goes with the sleeves' strips: kept wherever they are.)
+    d.cuffTone = item.cuffTone ?? null
+    d.top.setCuffTone(d.redrape && !d.sleevesPlaced ? null : d.cuffTone)
+    d.top.setPhotoMap(d.redrape ?? item.photoMap ?? null)
+    d.top.setCloseup(item.closeup ?? null)
+    // (The close-up arrives later: the still starts over and the garment is metered again with it on.)
+    d.top.onCloseup = () => { this.still?.reset(); this.start() }
+    d.top.setLegPrints(item.legPrints ?? null)
+    d.top.mesh.visible = d.shown
+    if (this.view === "fit") d.top.paintFit(item.checks ?? [], STATUS_COLORS)
+    d.top.setFitMap(this.view === "fit")
+  }
+
+  // The cloth is sewn and settled on the mannequin in its rest pose (arms out, as garment tools do it), then
+  // moved into the pose shown and settled again there. Each layer is sewn over those under it, as they lie
+  // in that pose.
+  startDrape({ slot, key, item }) {
+    const rest = this.restSnapshot()
+    const over = [...rest.over, ...this.under(slot).filter(d => d.top.done).map(d => clothSnapshot(d.restX ?? d.top.drape.x, d.top, rest.body))]
+    const { frame, field } = this.prepare({ ...rest, over }, { arms: slot !== "bottom" })
+    // A jacket over a top starts clear of the top's cloth (a tucked top lies close round the waist, so the
+    // usual gap clears it; more would stretch the jacket's hem round the hips, to spring back and ride up).
+    if (slot === "outer" && this.slots.top && this.order !== TUCKED_LAYERS) frame.gap = 0.03
+    // (Cut round the body as the mannequin is drawn, not past what it could reach: see drawnBody.)
+    // (And a jacket or coat round the top under it, as cut: see overLayer.)
+    const measures = overLayer(drawnBody(this.fitted, this.measures), slot === "outer" ? this.slots.top?.top?.pattern?.measures ?? null : null)
+    const top = new DrapedTop({ item, body: rest.body, frame, field, measures, renderer: this.renderer })
+    // Sewn in the worker, when it's there: over shoes too (it works their outlines out from their points, as
+    // prepare does here). On the page, sewing pants and a shirt over boots took most of each frame for the
+    // length of the drape.
+    if (this.remote && !this.remote.failed) {
+      top.remote = this.remote.sew(++this.remoteIds, { item, body: rest.body, over, egg: rest.egg, measures, arms: slot !== "bottom", shoes: rest.shoes })
+    }
+    if (this.worn) for (const material of [top.materials.main, top.materials.rib]) this.projectOnto(material)
+    top.mesh.visible = false
+    this.scene.add(top.mesh)
+    const d = this.slots[slot] = { slot, key, top, rest: { ...rest, over }, frame, posedAs: null, posing: null, shown: false, bodyType: this.bodyType }
+    // A garment of a kind draped before starts from that drape (see drape_bank.js): the drape waits for the
+    // bank's answer (a moment), then carries on from the bank's positions, or from scratch.
+    if (this.bank && !top.remote) {
+      top.banking = true
+      this.bank.pick(top, this.bodyType).then(hit => {
+        if (this.slots[slot] !== d) return
+        if (hit) this.startFromBank(d, hit.entry)
+        top.banking = false
+        this.redraw()
+      }).catch(() => { top.banking = false })
+    }
+    this.start()
+  }
+
+  // The garment's cloth put where the bank entry's was (for its own pattern points), sewn and settled: it goes
+  // straight to being posed (one step, a settle) instead of sewing and settling from scratch.
+  startFromBank(d, entry) {
+    const { top } = d
+    const drape = top.drape
+    if (drape.sewn || top.done) return
+    // The seams closed first, as the entry's were (its points are the joined cloth's); should the entry not fit
+    // after all, the garment settles from where it was placed with its seams joined (as a skirt is sewn).
+    drape.releaseBands()
+    drape.closeSeams()
+    const start = warmStart(entry, top)
+    if (!start) return
+    d.weights = start.weights
+    d.restBind = start.restBind
+    d.restX = skinWith(start.restBind, start.weights.skinIndex, start.weights.skinWeight, d.rest.skin)
+    drape.x.set(d.restX)
+    drape.v.fill(0)
+    // A short settle where it was put (the entry's garment was a little different: its own measurements, so
+    // every thread is a little long or short), then it's posed as a drape just sewn is, in one step.
+    // (Eased to its own size first, keeping no speed: the entry's cloth may be a size off or hang longer than
+    // this one's threads allow, and let go at once it snaps back hard enough to throw a sleeve off its arm.)
+    top.steps = (function* () {
+      for (let k = 0; k < BANK_EASE; k++) { drape.step({ gravity: 0, sew: false, still: true }); yield "settling" }
+      yield* drape.settle(80, 30)
+    })()
+    top.frames = 0
+    top.phase = "settling"
+    top.banked = true
+    d.warm = true
+    top.update()
+  }
+
+  // The garment in a slot, draped and posed, as a bank entry (drape_bank.js's exportEntry), or null.
+  exportBankEntry(slot = "top") {
+    const d = this.slots[slot]
+    return d?.restBind && d.top.done && !d.posing ? exportEntry(d, d.bodyType) : null
+  }
+
+  // keepShown: leave the garment on screen (as this.leaving[slot]) until the next one is ready to show.
+  removeDraped(slot = "top", { keepShown = false } = {}) {
+    const d = this.slots[slot]
+    this.slots[slot] = null
+    if (!d) { if (!keepShown) this.dropLeaving(slot); return }
+    if (d.top.remote) this.remote?.drop(d.top.remote.id)
+    if (d.fade) this.finishFade(d)
+    if (keepShown && d.shown) {
+      this.dropLeaving(slot)
+      this.leaving[slot] = d
+      return
+    }
+    this.scene.remove(d.top.mesh)
+    d.top.dispose()
+    if (!keepShown) this.dropLeaving(slot)
+  }
+
+  dropLeaving(slot) {
+    const d = this.leaving[slot]
+    if (!d) return
+    this.scene.remove(d.top.mesh)
+    d.top.dispose()
+    this.leaving[slot] = null
+  }
+
+  // The body (and the trousers, when worn) and the egg head in the pose garments are sewn in (see SEWING_POSE),
+  // with how each bone then maps bind space to world space. The pose shown is put back afterwards.
+  restSnapshot() {
+    for (const [bone, quaternion] of this.rest) bone.quaternion.copy(quaternion)
+    this.turnBones(SEWING_POSE, 1)
+    this.standInHeels()
+    this.model.updateMatrixWorld(true)
+    const snapshot = this.snapshotNow()
+    const mesh = this.meshes.body
+    snapshot.skin = mesh.skeleton.bones.map((bone, i) => new THREE.Matrix4().multiplyMatrices(bone.matrixWorld, mesh.skeleton.boneInverses[i]).multiply(mesh.bindMatrix))
+    this.applyPose()
+    return snapshot
+  }
+
+  // slot: whose drape this is for; it includes the layers draped under it as they are now.
+  snapshotNow(slot = null) {
+    const body = bodySnapshot(this.meshes.body)
+    const over = this.meshes.trousers.visible ? [bodySnapshot(this.meshes.trousers)] : []
+    // Shoes and socks are worn under everything: pants lie on them.
+    const taken = new Map(), shoeMeshes = new Set([this.feet.shoes?.L, this.feet.shoes?.R].filter(Boolean))
+    for (const mesh of this.feet.meshes) {
+      const snap = meshSnapshot(mesh)
+      taken.set(mesh, snap)
+      if (shoeMeshes.has(mesh)) { const index = outerShell(snap.positions, snap.index); over.push({ positions: snap.positions, normals: vertexNormals(snap.positions, index), index }) } else over.push(snap)
+    }
+    // And each shoe's points as they are in this pose, for its outline (see prepare).
+    const shoes = this.feet.shoes?.L && this.feet.shoes?.R ? { L: taken.get(this.feet.shoes.L)?.positions, R: taken.get(this.feet.shoes.R)?.positions } : null
+    if (slot) for (const d of this.under(slot)) if (d.top.done) over.push(clothSnapshot(d.top.drape.x, d.top, body))
+    return { body, over, shoes, egg: coverHead(this.eggShape(), body) }
+  }
+
+  // The egg head as an ellipsoid in world space.
+  eggShape() {
+    const egg = this.egg
+    if (!egg) return null
+    egg.updateWorldMatrix(true, false)
+    const centre = new THREE.Vector3().setFromMatrixPosition(egg.matrixWorld)
+    const scale = new THREE.Vector3().setFromMatrixScale(egg.matrixWorld)
+    return { centre: centre.toArray(), radii: scale.toArray() }
+  }
+
+  // Once the drape has settled, and whenever the pose changes: the garment, skinned from its rest drape into
+  // the pose shown, settles there on the posed body.
+  reposeDraped(d) {
+    const { top } = d
+    const drape = top.drape
+    if (!d.restX) {
+      d.restX = Float32Array.from(drape.x)
+      const pieces = new Array(drape.x.length / 3)
+      top.cloth.panel.forEach((p, i) => { pieces[drape.map[i]] ??= top.cloth.panels[p] })
+      // Without sleeves, the garment doesn't follow the arms (its straps stay on the shoulders).
+      const bones = this.meshes.body.skeleton.bones
+      const sleeveless = !Object.keys(top.pattern.panels).some(name => name.startsWith("sleeve"))
+      const still = sleeveless ? new Set(bones.flatMap((b, i) => (/^(upperarm|lowerarm|hand|thumb|index|middle|ring|pinky)_/.test(b.name) ? [i] : []))) : null
+      const fallback = Math.max(0, bones.findIndex(b => /^spine_?0?3|^spine3|chest/i.test(b.name)))
+      d.weights = garmentWeights(d.restX, pieces, d.rest.body, d.frame, { still, fallback, legs: d.slot === "bottom" })
+      // Each point back into bind space, through the bones it follows as they were when it was sewn.
+      d.restBind = new Float32Array(d.restX.length)
+      const blend = new THREE.Matrix4(), point = new THREE.Vector3()
+      const { skinIndex, skinWeight } = d.weights
+      for (let i = 0; i < d.restX.length / 3; i++) {
+        const e = blend.elements.fill(0)
+        for (let k = 0; k < 4; k++) {
+          const w = skinWeight[4 * i + k]
+          if (!w) continue
+          const m = d.rest.skin[skinIndex[4 * i + k]].elements
+          for (let j = 0; j < 16; j++) e[j] += w * m[j]
+        }
+        point.set(d.restX[3 * i], d.restX[3 * i + 1], d.restX[3 * i + 2]).applyMatrix4(blend.invert())
+        d.restBind[3 * i] = point.x; d.restBind[3 * i + 1] = point.y; d.restBind[3 * i + 2] = point.z
+      }
+    }
+    d.final = false
+    d.posing = d.top.remote ? this.posingRemote(d) : this.posing(d)
+    d.posedAs = this.pose
+  }
+
+  // Into the pose a little at a time, settling between, as a person moves: an arm swung down in one jump
+  // lands inside the shirt's side and pushes the cloth out over itself; moved in steps, it pushes the cloth
+  // aside. The garment on screen stays as it was until the last step (d.final).
+  * posing(d) {
+    const drape = d.top.drape
+    const long = d.top.pattern.style === "dress" || d.top.pattern.measures.length > 85   // more to push aside, further to fall
+    // (Pants' legs move little between the sewing pose and standing: fewer steps than a dress's skirt. Started
+    // from the bank, the cloth was draped in this pose once already: one step.)
+    const steps = d.warm ? 1 : long ? (d.top.bottoms ? 4 : 6) : 3
+    let before = null
+    for (let s = 1; s <= steps; s++) {
+      d.poseStep = (s - 1) / steps
+      this.applyPose(s / steps)
+      const posed = skinPoints(d.restBind, d.weights.skinIndex, d.weights.skinWeight, this.meshes.body)
+      const now = this.snapshotNow(d.slot)
+      const { frame, field } = this.prepare(now, { arms: d.slot !== "bottom" })
+      if (s < steps) this.applyPose()
+      // A skirt or dress keeps hanging round both legs as they come together, rather than falling in
+      // between them.
+      const envelope = drape.hangs ? { table: frame.torso, top: frame.crotch + 0.03, bottom: frame.floor } : null
+      // A tucked top stays gathered round the body as it moves.
+      if (drape.tuck) drape.tuck = { ...drape.tuck, table: frame.torso }
+      // Pants stay off the feet where the feet now are.
+      const feet = drape.feet ? frame.feet : null
+      // And a top's sleeves stop at the hands where the arms now are. Pants stay on the body's side of the
+      // hands hanging beside them (their collision field leaves the arms out).
+      const arms = drape.arms ? frame.arms : null
+      const hands = d.slot === "bottom" ? frame.hands : null
+      if (!before) drape.repose(posed, field, envelope, feet, arms, hands)
+      else {
+        for (let i = 0; i < posed.length; i++) drape.x[i] += posed[i] - before[i]
+        drape.v.fill(0)
+        drape.field = field
+        drape.envelope = envelope
+        drape.feet = feet
+        drape.arms = arms
+        drape.hands = hands
+      }
+      before = posed
+      if (s < steps) { yield* drape.settle(10, 4); continue }
+      d.final = true
+      d.top.update()
+      yield* (long ? drape.settle(180, 50) : drape.settle(70, 25))
+    }
+  }
+
+  // posing, with the settling done in the drape worker: here, the pose is applied a step at a time and the
+  // body and the layers under it are read in it (as posing does), and the worker settles the cloth there. It
+  // yields WAITING while the worker works, and takes the cloth's points as they come back.
+  * posingRemote(d) {
+    const drape = d.top.drape, remote = this.remote
+    const long = d.top.pattern.style === "dress" || d.top.pattern.measures.length > 85
+    const steps = long ? 6 : 3
+    let before = null
+    for (let s = 1; s <= steps; s++) {
+      if (remote.failed) { yield* this.posing(d); return }
+      d.poseStep = (s - 1) / steps
+      this.applyPose(s / steps)
+      const posed = skinPoints(d.restBind, d.weights.skinIndex, d.weights.skinWeight, this.meshes.body)
+      const now = this.snapshotNow(d.slot)
+      if (s < steps) this.applyPose()
+      const last = s === steps
+      const step = remote.pose(d.top.remote.id, { posed, before, now: { body: now.body, over: now.over, egg: now.egg, shoes: now.shoes }, bottom: d.slot === "bottom", last, long })
+      before = posed
+      if (last) { d.final = true; d.top.update() }
+      while (!step.done) {
+        if (remote.failed || step.failed) { yield* this.posing(d); return }
+        if (last && step.x) { drape.x.set(step.x); drape.frame = step.frame; step.x = null; d.top.update(); d.laidOut = drape.frame }
+        yield WAITING
+      }
+      drape.x.set(step.x)
+      drape.frame = step.frame
+      if (step.field) drape.field = step.field
+    }
+    d.top.update()
+  }
+
+  // What a studio render needs to reproduce the screen: the body's shape keys and scale, each item's
+  // size adjustments and colour, and the pose.
+  snapshot() {
+    if (!this.fitted) return null
+    return {
+      scale: this.fitted.scale,
+      // The studio renderer has only the base body's shape keys (its own build is the men's body).
+      body: Object.fromEntries(Object.entries(this.fitted.influences).filter(([name]) => name !== "women")),
+      pose: this.pose,
+      // Shoes, socks and belts are drawn only here, on the page.
+      items: this.outfit.filter(item => !["shoes", "socks", "belt", "bag"].includes(item.kind)).map(item => ({
+        kind: item.kind, style: item.kind === "jacket" ? (item.style ?? "tailored") : item.kind === "top" ? (item.style ?? "tee") : undefined,
+        color: item.color, fabric: item.fabric ?? "wool", ease: this.lastEase[item.kind] ?? {}
+      }))
+    }
+  }
+
+  // kind: the mesh ("jacket", "coat" or "trousers"); slot: the outfit's.
+  dressMesh(kind, item, ease, slot = kind) {
+    this.lastEase[slot] = ease
+    const mesh = this.meshes[kind]
+    const keys = EASE_KEYS[kind === "trousers" ? "trousers" : "jacket"]
+    applyInfluences(mesh, Object.fromEntries(keys.map(key => [key, ease[key] ?? 0])))
+    const materials = this.materials[kind]
+    const fabric = FABRICS[item.fabric] ?? FABRICS.wool
+    materials.cloth.userData.tint.value.set(item.color)
+    materials.cloth.sheenColor.set(item.color).offsetHSL(0, 0, 0.35)   // cloth catches light in its own colour
+    materials.cloth.roughness = fabric.roughness
+    materials.cloth.sheen = fabric.sheen
+    materials.cloth.normalScale.setScalar(fabric.weave)
+    materials.cloth.clearcoat = fabric.clearcoat
+    if (this.view === "fit") {
+      paintFitMap(mesh, item.checks, REGIONS[kind === "trousers" ? "trousers" : "jacket"])
+      mesh.material = materials.fitMap
+    } else {
+      mesh.material = materials.cloth
+    }
+  }
+
+  // Setup
+
+  addLights() {
+    // A soft key light for the shadows clothes and limbs cast on each other; the studio HDRI does the rest.
+    const key = new THREE.DirectionalLight(0xfff8f0, 1.6)
+    key.position.set(1.6, 3.2, 2.4)
+    key.castShadow = true
+    key.shadow.mapSize.set(2048, 2048)
+    key.shadow.camera.left = key.shadow.camera.bottom = -1.3
+    key.shadow.camera.right = key.shadow.camera.top = 1.3
+    key.shadow.radius = 8
+    key.shadow.bias = -0.0003
+    key.shadow.normalBias = 0.01
+    this.scene.add(key)
+    this.key = key
+    // A light from behind, which catches the edges of the cloth and lifts the figure off the backdrop: dim and
+    // a little cool on the graphite stage (a studio's separation, not a colour cast), stronger in daylight. And
+    // in the daylight studio, a cool fill from the other side.
+    this.fill = new THREE.DirectionalLight(0xf2f4ff, 0.55)
+    this.fill.position.set(-2.5, 1.8, 2.0)
+    this.rim = new THREE.DirectionalLight(0xffffff, 0.4)
+    this.scene.add(this.fill, this.rim)
+
+    // A faint pool of light on the floor, so the figure stands on something, and its shadow in it.
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(1.1, 64), new THREE.MeshBasicMaterial({
+      color: 0x59606c, map: glow(), transparent: true, depthWrite: false, toneMapped: false
+    }))
+    pool.rotation.x = -Math.PI / 2
+    pool.position.y = -0.001
+    this.scene.add(pool)
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(4, 64), new THREE.ShadowMaterial({ opacity: 0.45 }))
+    floor.rotation.x = -Math.PI / 2
+    floor.receiveShadow = true
+    this.scene.add(floor)
+    this.pool = pool
+    this.floor = floor
+    // Right under the feet, where the floor sees least of the room: a small, soft dark patch, so the figure
+    // stands on the floor rather than over it.
+    const contact = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.46), new THREE.MeshBasicMaterial({
+      color: 0x000000, alphaMap: contactShadow(), transparent: true, opacity: 0.55, depthWrite: false
+    }))
+    contact.rotation.x = -Math.PI / 2
+    contact.position.set(0, 0.0005, 0.02)
+    contact.renderOrder = 1
+    this.scene.add(contact)
+    this.contact = contact
+  }
+
+  // "studio" (a warm off-white sweep, the default), "daylight" (pale grey) or "dark" (the graphite stage): see
+  // LOOKS. The floor is only its shadows on the backdrop's colour, so there's no line where floor meets wall.
+  setScene(name) {
+    const look = LOOKS[name] ?? LOOKS.studio
+    this.sceneLook = LOOKS[name] ? name : "studio"
+    const tone = this.backdropTone(look.exposure)
+    this.scene.background?.dispose?.()
+    this.scene.background = this.sceneLook === "studio" ? studioBackdrop(tone) : this.sceneLook === "daylight" ? daylightBackdrop(tone) : backdrop(tone)
+    this.pool.visible = look.pool
+    this.floor.material.opacity = look.floor
+    this.contact.material.opacity = look.contact
+    this.contact.scale.set(1 + (look.stretch - 1) * 0.6, look.stretch, 1)
+    this.contact.position.z = 0.02 - (look.stretch - 1) * 0.06
+    this.fill.visible = look.fill > 0
+    this.fill.intensity = look.fill
+    this.rim.color.set(look.rim.color)
+    this.rim.intensity = look.rim.intensity
+    this.rim.position.set(...look.rim.position)
+    this.key.intensity = look.key
+    this.key.shadow.radius = look.keyRadius
+    this.scene.environmentIntensity = look.environment
+    this.renderer.toneMappingExposure = look.exposure
+    this.start()
+  }
+
+  // What's laid over the picture's top and bottom (pixels: the page's controls and size rows), so the figure
+  // is framed between them. The first time, the camera goes straight there; after that it eases.
+  setInsets({ top = 0, bottom = 0 } = {}) {
+    const same = this.insets && this.insets.top === top && this.insets.bottom === bottom
+    if (same) return
+    const first = !this.insets
+    this.insets = { top, bottom }
+    if (!this.calibration) return
+    if (first) this.frame()
+    else this.frameOutfit()
+  }
+
+  async dress(textures) {
+    const loader = new THREE.TextureLoader()
+    const load = async (path, { color = true, repeat = null } = {}) => {
+      const texture = await loader.loadAsync(`${MODELS}/${path}`)
+      texture.flipY = false   // glTF texture coordinates
+      if (color) texture.colorSpace = THREE.SRGBColorSpace
+      texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+      if (repeat) {
+        texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+        texture.repeat.set(repeat, repeat)
+      }
+      return texture
+    }
+    const [suit, ao, woolNormal, woolRoughness] = await Promise.all([
+      load(textures.suit),
+      load(textures.suit_ao, { color: false }),
+      load("textures/wool_normal.jpg", { color: false, repeat: WOOL_REPEAT }),
+      load("textures/wool_roughness.jpg", { color: false, repeat: WOOL_REPEAT })
+    ])
+    const maps = { map: suit, aoMap: ao, normalMap: woolNormal, roughnessMap: woolRoughness }
+
+    this.meshes.body.material = mannequinMaterial()
+    this.materials = {
+      jacket: { cloth: tintableFabric(maps), fitMap: fitMapFabric(maps) },
+      coat: { cloth: tintableFabric(maps, { clothOnly: true }), fitMap: fitMapFabric(maps, { clothOnly: true }) },
+      trousers: { cloth: tintableFabric(maps), fitMap: fitMapFabric(maps) }
+    }
+    for (const kind of ["jacket", "coat", "trousers"]) this.meshes[kind].material = this.materials[kind].cloth
+  }
+
+  // The head as the cloth meets it: an egg round MakeHuman's head (the mannequin shows its own sculpted
+  // head, in the same matte finish), on an oval neck, both hanging from the head bone so they follow the pose
+  // and the mannequin's height. Never drawn: a hood or collar drapes over this smooth shape rather than
+  // catching on the face.
+  addEggHead({ centre, radii }) {
+    const material = this.meshes.body.material.userData.plain
+    const egg = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), material)
+    // A little bigger all round than the head, so a hood lies over its crown and the back of the skull (a
+    // little longer at the bottom, down to the jaw).
+    egg.scale.set(radii[0] * 1.08, radii[1] * 1.14, radii[2] * 1.18)
+    egg.position.fromArray(centre)
+    egg.position.y -= radii[1] * 0.06
+    egg.position.z -= 0.012   // the back of the skull reaches further back than the face does forward
+    // The neck leans forward a little, from the body's neck into the middle of the egg (which sits forward of
+    // it). Each body has its own (the women's is slimmer); both are kept, in the model's space.
+    const neckAt = ({ radii, centreZ, flare = 1.04 }) => {
+      const from = new THREE.Vector3(0, NECK.bottom, centreZ), to = egg.position
+      const geometry = new THREE.CylinderGeometry(1, flare, from.distanceTo(to), 48, 1, true)
+      geometry.scale(radii[0], 1, radii[1])
+      geometry.rotateX(Math.atan2(to.z - from.z, to.y - from.y))
+      geometry.translate(...from.clone().lerp(to, 0.5).toArray())
+      return geometry
+    }
+    const neck = new THREE.Mesh(neckAt(NECK), material)
+    const women = this.calibration.women?.neck
+    this.necks = { men: neck.geometry, women: women ? neckAt({ ...NECK, ...women }) : neck.geometry }
+    for (const part of [egg, neck]) {
+      part.castShadow = part.receiveShadow = true
+      this.model.add(part)
+    }
+    this.model.updateMatrixWorld(true)
+    const head = this.model.getObjectByName("head")
+    head?.attach(egg)
+    head?.attach(neck)
+    egg.visible = neck.visible = false
+    this.eggScale = egg.scale.clone()
+    this.egg = egg
+    this.eggNeck = neck
+  }
+
+  // amount: how far from the rest pose into it (0 to 1), for moving into it in steps (see posing).
+  applyPose(amount = 1) {
+    if (!this.model) return
+    for (const [bone, quaternion] of this.rest) bone.quaternion.copy(quaternion)
+    const pose = this.poses.poses[this.pose] ?? this.poses.poses.standing
+    // Part of the way (while a garment moves into the pose): from the pose it was sewn in.
+    if (amount < 1) this.turnBones(SEWING_POSE, 1 - amount)
+    // (Carrying a bag: that arm as it hangs standing, whatever the pose. With the bag in its hand it's
+    // straightened (hangArm); round a bag on the shoulder it keeps its easy bend, held out from the body.)
+    const arm = new RegExp(`^(?:upperarm|lowerarm)_${this.carry}$`)
+    const turns = !this.carry ? pose.turns : [...pose.turns.filter(([bone]) => !arm.test(bone)), ...this.poses.poses.standing.turns.filter(([bone]) => arm.test(bone))]
+    this.turnBones(turns, amount)
+    if (this.carry && this.carryHow === "hand") this.hangArm(this.carry, amount)
+    if (this.carry && this.carryHow === "shoulder") this.holdOut(this.carry, this.carryOut, amount, this.carryFore)
+    this.standInHeels()
+    // Relaxed hands: fingers gently curled, as on a display mannequin.
+    const { bones, curl, thumb_02: thumb } = this.poses.fingers
+    for (const side of ["l", "r"]) {
+      // (The hand that carries a bag is closed round its handles.)
+      const grip = side === this.carry && this.carryHow === "hand" ? CARRY_GRIP[this.carryGrip] : null
+      for (const finger of bones) {
+        for (const [joint, angle] of Object.entries(grip?.curl ?? curl)) this.model.getObjectByName(`${finger}_${joint}_${side}`)?.rotateX(angle)
+      }
+      this.model.getObjectByName(`thumb_02_${side}`)?.rotateX(grip?.thumb ?? thumb)
+    }
+    this.model.updateMatrixWorld(true)
+  }
+
+  // Heels (see dressFeet): the feet pitched toes down, and the body lifted so the toes stay on the floor. In
+  // every pose, the one clothes are sewn in too (restSnapshot): the shoes are built round the feet as pitched
+  // and hung on the feet's bones, so on feet left flat each shoe is tipped back by the pitch about its ankle.
+  // Under a 10 cm heel that's 35 degrees: a knee-high boot's shaft stood 20 cm out behind the knee, the jeans
+  // were sewn with it through the back of the leg, and stayed beside the boot when the feet came down.
+  standInHeels() {
+    const rise = this.feet?.rise
+    if (rise) this.turnBones([["foot_l", "x", rise.angle], ["foot_r", "x", rise.angle]], 1)
+    this.model.position.y = rise ? rise.lift : 0
+  }
+
+  // An arm that carries a bag hangs straight: seen from the side, its upper arm upright and its forearm a touch
+  // forward of that. (The standing pose holds the forearm well forward, the elbow bent: a bag hung from that
+  // hand hangs out in front of the legs, from an arm that couldn't hold it there.) Each is turned about the
+  // side-to-side axis by as much as it leans, measured on the bones as they are.
+  hangArm(side, amount = 1) {
+    const at = name => this.model.getObjectByName(`${name}_${side}`)
+    if (!at("upperarm") || !at("lowerarm") || !at("hand")) return
+    const lean = (from, to) => {
+      this.model.updateMatrixWorld(true)
+      const a = at(from).getWorldPosition(new THREE.Vector3()), b = at(to).getWorldPosition(new THREE.Vector3())
+      // (Forward of straight down, in radians: a turn about +x swings what hangs down backward.)
+      return Math.atan2(b.z - a.z, a.y - b.y)
+    }
+    this.turnBones([[`upperarm_${side}`, "x", lean("upperarm", "lowerarm")]], amount)
+    this.turnBones([[`lowerarm_${side}`, "x", lean("lowerarm", "hand") - CARRY_FOREARM]], amount)
+  }
+
+  // An arm with a bag on its shoulder is held out round the bag: seen from the front, the upper arm out from
+  // straight down by `angle`, the forearm hanging straight from the elbow, along the bag's face (fore 0), or
+  // keeping the upper arm's line (fore 1: beside a bag that hangs below the elbow). (Seen from the side it's as
+  // the pose left it: the elbow a little bent, the forearm forward.)
+  holdOut(side, angle, amount = 1, fore = 0) {
+    const at = name => this.model.getObjectByName(`${name}_${side}`)
+    if (!at("upperarm") || !at("lowerarm") || !at("hand")) return
+    const out = side === "l" ? 1 : -1
+    const axis = new THREE.Vector3(0, 0, 1)
+    const lean = (from, to) => {
+      this.model.updateMatrixWorld(true)
+      const a = at(from).getWorldPosition(new THREE.Vector3()), b = at(to).getWorldPosition(new THREE.Vector3())
+      // (Out to this arm's side of straight down, in radians: a turn about +z swings what hangs down to +x.)
+      return Math.atan2((b.x - a.x) * out, a.y - b.y)
+    }
+    const turn = (name, by) => {
+      const bone = at(name)
+      this.model.updateMatrixWorld(true)
+      const local = axis.clone().applyQuaternion(bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert())
+      bone.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(local, by * out * amount))
+    }
+    turn("upperarm", angle - lean("upperarm", "lowerarm"))
+    turn("lowerarm", 0.03 + (angle - 0.03) * fore - lean("lowerarm", "hand"))
+  }
+
+  // Turns bones from where they are: [bone, world axis "x" or "z", radians], `amount` of the way.
+  turnBones(turns, amount) {
+    const axes = { x: new THREE.Vector3(1, 0, 0), z: new THREE.Vector3(0, 0, 1) }
+    // The women's mannequin holds its arms a little further from its body (as display mannequins do), clear of
+    // a skirt.
+    const armsOut = this.bodyType === "women" && this.hasWomen ? (this.calibration.women.arms ?? 1) : 1
+    for (const [name, axis, turn] of turns) {
+      const angle = turn * amount * (axis === "z" && name.startsWith("upperarm_") ? armsOut : 1)
+      const bone = this.model.getObjectByName(name)
+      if (!bone) continue
+      // Turn about a world axis, expressed in the bone's parent space.
+      this.model.updateMatrixWorld(true)
+      const local = axes[axis].clone().applyQuaternion(bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert())
+      bone.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(local, angle))
+    }
+  }
+
+  // Head to toe, a little from the side, like a lookbook photo: the figure fills most of the picture's height
+  // (see lib/framing), centred between the controls over the top of it and the size rows over its bottom.
+  // Straight there, with the camera a little from the side (a resize, or the first look).
+  frame() {
+    const goal = this.framingGoal()
+    this.cameraMove = null
+    this.controls.target.set(0, goal.centreY, 0)
+    this.camera.position.set(Math.sin(0.25) * goal.distance, goal.centreY + goal.height * 0.04, Math.cos(0.25) * goal.distance)
+    this.controls.update()
+  }
+
+  // The same framing for the outfit as it is now (a tall person, a hood up, heels), eased to over a moment
+  // (see animate), keeping whichever way round the figure the camera is: pants alone or a whole outfit, the
+  // figure sits in the same place.
+  frameOutfit() {
+    if (!this.calibration) return
+    const goal = this.framingGoal()
+    const from = { target: this.controls.target.clone(), distance: this.camera.position.distanceTo(this.controls.target) }
+    const to = { target: new THREE.Vector3(0, goal.centreY, 0), distance: goal.distance }
+    if (this.cameraMove?.to.target.equals(to.target) && Math.abs(this.cameraMove.to.distance - to.distance) < 1e-4) return
+    if (from.target.distanceTo(to.target) < 0.002 && Math.abs(from.distance - to.distance) < 0.005) { this.cameraMove = null; return }
+    this.cameraMove = { from, to, t0: performance.now() }
+    this.start()
+  }
+
+  // Where the camera should look from (see lib/framing): the figure's height as drawn, with anything worn
+  // that reaches above the head.
+  framingGoal() {
+    const H = (this.calibration.body.height / 100) * (this.fitted?.scale ?? 1)
+    let top = H
+    for (const d of Object.values(this.slots)) {
+      if (!d?.shown) continue
+      d.top.geometry.computeBoundingBox()
+      const box = d.top.geometry.boundingBox
+      if (box && Number.isFinite(box.max.y)) top = Math.max(top, box.max.y)
+    }
+    const height = Math.min(top, H * 1.08)
+    const pictureHeight = this.renderer.getSize(new THREE.Vector2()).y
+    const narrow = Boolean(globalThis.matchMedia?.("(max-width: 720px)")?.matches)
+    return { height, ...framing({ height, fov: this.camera.fov, pictureHeight, insets: this.insets ?? { top: 0, bottom: 0 }, narrow }) }
+  }
+
+  // Each frame: the camera's move (frameOutfit), a shown garment's fade in (show) and the figure's slow
+  // turn once it's on (see reveal). The camera keeps its direction round the figure while it moves.
+  animate(now = performance.now()) {
+    const move = this.cameraMove
+    if (move) {
+      const t = (now - move.t0) / REVEAL.camera, e = easeInOut(t)
+      const direction = this.camera.position.clone().sub(this.controls.target).normalize()
+      this.controls.target.lerpVectors(move.from.target, move.to.target, e)
+      const distance = move.from.distance + (move.to.distance - move.from.distance) * e
+      this.camera.position.copy(this.controls.target).addScaledVector(direction, distance)
+      if (t >= 1) this.cameraMove = null
+    }
+    for (const d of Object.values(this.slots)) if (d?.fade) this.advanceFade(d, now)
+    const turn = this.turn
+    if (turn) {
+      const t = (now - turn.t0) / REVEAL.turn
+      const angle = easeInOut(t) * Math.PI * 2
+      this.turnCamera(angle - turn.turned)
+      turn.turned = angle
+      if (t >= 1) { this.turn = null; this.idle.later() }
+    }
+  }
+
+  // The camera round the figure by `angle` (radians), the way the idle turn goes.
+  turnCamera(angle) {
+    const offset = this.camera.position.clone().sub(this.controls.target)
+    const radius = Math.hypot(offset.x, offset.z), theta = Math.atan2(offset.x, offset.z) - angle
+    offset.x = Math.sin(theta) * radius
+    offset.z = Math.cos(theta) * radius
+    this.camera.position.copy(this.controls.target).add(offset)
+  }
+
+  // Once a new garment is on and everything's settled: one slow turn right round, so it's seen all round,
+  // which a touch stops. Only when the page asks (revealTurns) and not for anyone who's asked for less motion.
+  reveal() {
+    if (!this.revealTurns || this.stillness || this.turn) return
+    this.idle.stop()
+    this.turn = { t0: performance.now(), turned: 0 }
+    this.start()
+  }
+
+  // A still picture of what's on screen, sharper than the screen: drawn once at `width` by `height` pixels
+  // with finer shadows, then the view goes back as it was. Returns a PNG Blob. Nothing leaves the device.
+  async photo({ width = 1600, height = 2000 } = {}) {
+    return (await this.photoPasses({ width, height, guides: false, record: false })).image
+  }
+
+  // The photo, and with `guides` two more pictures from the same camera for an image model to keep to:
+  // depth (nearest white, farthest black, the figure only) and the figure's outline (white on black).
+  // Returns { image, depth, mask } as PNG Blobs (depth and mask null without guides).
+  // `record` (the default) keeps the camera that took it, with the depth it saw, as this.capture, so a picture
+  // painted from this photo can be laid back onto the clothes (see wearPhoto); a picture already worn comes
+  // off first, so the photo is the page's own.
+  // `close`: framed on the figure (a portrait close-up of it, width by height) rather than the stage as the
+  // screen shows it: the same camera, the rest cropped away (see photoPassesSync).
+  async photoPasses({ width = 1600, height = 2000, guides = true, front = false, record = true, close = false } = {}) {
+    if (record) this.wearPhoto(null)
+    this.wearBelt()
+    this.wearBag()
+    this.wearScarf()
+    this.wearCollars()
+    this.hideCovered()
+    this.finishMoves()
+    // `front`: from in front, whichever way the figure is turned on screen (an image model wants the
+    // zip, the print and the hood where a shop photo shows them). The camera goes back after.
+    const facing = front ? this.faceFront() : null
+    let pending
+    try {
+      pending = this.photoPassesSync({ width, height, guides, record, close })
+    } finally {
+      if (facing) { this.camera.position.copy(facing.position); this.controls.update() }
+      this.redrawNow()
+    }
+    return { image: await pending.image, depth: await pending.depth, mask: await pending.mask }
+  }
+
+  // Turns the camera to just off straight in front of the figure (a lookbook's slight angle), at the
+  // same distance and height; stops a reveal turn. Returns the camera's position before, to put back.
+  faceFront() {
+    const position = this.camera.position.clone()
+    if (this.turn) { this.turn = null; this.idle.later?.() }
+    const offset = this.camera.position.clone().sub(this.controls.target)
+    this.turnCamera(Math.atan2(offset.x, offset.z) - FRONT_ANGLE)
+    this.controls.update()
+    return { position }
+  }
+
+  // The pictures of photoPasses, drawn before this returns: each is taken from the canvas as it's drawn, and
+  // only its encoding is left, as a promise ({ image, depth, mask }: PNG Blob promises, depth and mask null
+  // without guides); the canvas is back at its size. The caller puts back anything it changed for the
+  // picture (the mannequin hidden, the camera turned, a mask drawn) and draws the screen's view again
+  // (redrawNow) before it awaits them, so the screen never shows any of it: it did, for a frame or a few
+  // (the mannequin flickered out, or the view jumped to the front, while a garment was checked or metered).
+  // quick: one frame, the screen's shadows (a reading of the picture, not a photo: metering).
+  // read: the picture's pixels as well (pixels, an ImageData), read now, and no PNG made of it (image: null):
+  // the browser makes a PNG in its idle time, a second off while frames are being drawn, and a metering is
+  // three or more pictures the clothes are kept covered for.
+  photoPassesSync({ width, height, guides, record = false, close = false, quick = false, read = false }) {
+    const renderer = this.renderer, camera = this.camera
+    const size = renderer.getSize(new THREE.Vector2()), ratio = renderer.getPixelRatio()
+    const { aspect, fov, near, far } = camera
+    const key = this.scene.children.find(o => o.isDirectionalLight)
+    const mapSize = key?.shadow.mapSize.clone()
+    if (key && !quick) {
+      key.shadow.mapSize.set(4096, 4096)
+      key.shadow.map?.dispose()
+      key.shadow.map = null
+    }
+    renderer.setPixelRatio(1)
+    renderer.setSize(width, height, false)
+    // Framed a little closer than the screen, like a lookbook photo.
+    camera.fov = fov * 0.85
+    camera.aspect = width / height
+    camera.updateProjectionMatrix()
+    // A close-up: the screen's view, cut down to a width-by-height box round the figure and drawn at full
+    // size. The camera keeps its place, so the recorded projection (with the cut in it) still lays a picture
+    // painted from this photo back onto the clothes.
+    if (close) {
+      camera.aspect = size.x / size.y
+      camera.updateProjectionMatrix()
+      const view = this.figureView(camera, width / height)
+      if (view) camera.setViewOffset(view.fullWidth, view.fullHeight, view.x, view.y, view.width, view.height)
+    }
+    this.effects?.composer.setPixelRatio(1)
+    this.effects?.composer.setSize(width, height)
+    // A photo is the still picture: frames averaged, a fraction of a pixel and the light's place apart (still.js).
+    if (quick || !this.still?.drawAveraged(PHOTO_SAMPLES)) this.draw()
+    const grained = quick ? renderer.domElement : withGrain(renderer.domElement)
+    const image = read ? null : toBlob(grained)
+    const pixels = read ? pixelsNow(grained) : null
+    let depth = null, mask = null
+    // Depth over the figure's own span, so its near and far ends use the whole range.
+    const span = () => {
+      const sphere = new THREE.Box3().setFromObject(this.model).getBoundingSphere(new THREE.Sphere())
+      const distance = camera.position.distanceTo(sphere.center)
+      camera.near = Math.max(0.05, distance - sphere.radius * 1.25)
+      camera.far = distance + sphere.radius * 1.25
+      camera.updateProjectionMatrix()
+    }
+    if (record) {
+      span()
+      this.recordCapture(camera, width, height, grained)
+      camera.near = near
+      camera.far = far
+    }
+    if (guides) {
+      const stand = [this.pool, this.floor, this.contact].filter(Boolean)
+      const background = this.scene.background
+      const shown = stand.map(o => o.visible)
+      stand.forEach(o => { o.visible = false })
+      this.scene.background = new THREE.Color(0x000000)
+      span()
+      const depthMaterial = new THREE.MeshDepthMaterial()
+      this.scene.overrideMaterial = depthMaterial
+      renderer.render(this.scene, camera)
+      depth = canvasBlob(renderer.domElement)
+      const maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+      this.scene.overrideMaterial = maskMaterial
+      renderer.render(this.scene, camera)
+      const maskCanvas = copyCanvas(renderer.domElement)
+      mask = toBlob(maskCanvas)
+      if (record && this.capture) this.capture.mask = maskCanvas
+      this.scene.overrideMaterial = null
+      depthMaterial.dispose()
+      maskMaterial.dispose()
+      this.scene.background = background
+      stand.forEach((o, i) => { o.visible = shown[i] })
+      camera.near = near
+      camera.far = far
+    }
+    camera.fov = fov
+    if (close) camera.clearViewOffset()
+    if (key && !quick) {
+      key.shadow.mapSize.copy(mapSize)
+      key.shadow.map?.dispose()
+      key.shadow.map = null
+    }
+    renderer.setPixelRatio(ratio)
+    renderer.setSize(size.x, size.y, false)
+    this.effects?.composer.setPixelRatio(ratio)
+    this.effects?.composer.setSize(size.x, size.y)
+    camera.aspect = aspect
+    camera.updateProjectionMatrix()
+    return { image, depth, mask, pixels }
+  }
+
+  // The screen's picture drawn again now, as the next frame would draw it (the still or the traced picture
+  // when it's showing): after a picture was drawn on the canvas, before anything is awaited.
+  redrawNow() {
+    if (!this.still?.draw()) this.draw()
+  }
+
+  // One garment alone, close up, straight on from in front (or behind), on a plain backdrop: the mannequin,
+  // the other clothes, the floor and its shadow hidden, so it can be read as a shop's photo is and held to the
+  // shop's (look_check.js). Returns ImageData, or null when nothing is on in that slot.
+  async lookShot(slot = "top", { back = false, width = 480, height = 720, quick = false } = {}) {
+    const d = this.slots[slot]
+    if (!d?.top?.mesh) return null
+    if (d.fade) this.finishFade(d)
+    const keep = d.top.mesh, shown = keep.visible
+    const hidden = this.scene.children.filter(o => o !== keep && !o.isLight && o.visible)
+    for (const o of hidden) o.visible = false
+    keep.visible = true
+    const background = this.scene.background, position = this.camera.position.clone()
+    // A backdrop that stands apart from the cloth (drawn unlit, a white shirt has no shaded edge to tell it
+    // from a pale one): mid grey behind light cloth, a shop photo's pale grey behind anything darker.
+    const cloth = d.top.materials?.main?.color
+    const light = cloth ? 0.2126 * cloth.r + 0.7152 * cloth.g + 0.0722 * cloth.b > 0.45 : false
+    this.scene.background = new THREE.Color(light ? LOOK_BACKDROP_DARK : LOOK_BACKDROP)
+    // The sleeves' graphics off: a worn sleeve hangs beside the body, where it would be read as part of the
+    // front's graphic (a flat photo's sleeves lie clear of it, or are left out of it).
+    const sleeves = d.top.materials?.main?.userData?.uniforms?.uSleeveOn
+    const sleevesOn = sleeves?.value ?? 0
+    if (sleeves) sleeves.value = 0
+    // Only the body's outside: no sleeves (a worn sleeve hangs inside the front as it's measured), and not
+    // the inside of the back seen through the neck (the mannequin isn't there to hide it).
+    const lookOnly = Object.values(d.top.materials ?? {}).map(m => m.userData?.uniforms?.uLookOnly).filter(Boolean)
+    for (const u of lookOnly) u.value = 1
+    this.plainDraw = true
+    let pending
+    try {
+      this.faceFront()
+      this.turnCamera(FRONT_ANGLE + (back ? Math.PI : 0))
+      this.controls.update()
+      pending = this.photoPassesSync({ width, height, guides: false, record: false, close: true, quick })
+    } finally {
+      // (All put back before anything's awaited: see photoPassesSync.)
+      for (const o of hidden) o.visible = true
+      keep.visible = shown
+      if (sleeves) sleeves.value = sleevesOn
+      for (const u of lookOnly) u.value = 0
+      this.plainDraw = false
+      this.scene.background = background
+      this.camera.position.copy(position)
+      this.controls.update()
+      this.redrawNow()
+    }
+    const bitmap = await createImageBitmap(await pending.image)
+    const canvas = document.createElement("canvas")
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext("2d", { willReadFrequently: true })
+    context.drawImage(bitmap, 0, 0)
+    return context.getImageData(0, 0, width, height)
+  }
+
+  // Where the figure (the mannequin and everything it wears; not the floor, its shadow or the lights) sits in
+  // `camera`'s view: a box of the given shape (width over height) round it, a margin of its height each way,
+  // in a frame 1000 high. Null when nothing's there.
+  figureView(camera, shape) {
+    const stand = new Set([this.pool, this.floor, this.contact].filter(Boolean))
+    const bounds = new THREE.Box3()
+    for (const object of this.scene.children) {
+      if (!object.visible || object.isLight || stand.has(object)) continue
+      bounds.expandByObject(object)
+    }
+    if (bounds.isEmpty()) return null
+    // The camera may have just been turned (faceFront): its inverse matrix is otherwise only renewed at the
+    // next render.
+    camera.updateMatrixWorld()
+    const fullHeight = 1000, fullWidth = fullHeight * camera.aspect
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+    for (const corner of [0, 1, 2, 3, 4, 5, 6, 7]) {
+      const p = new THREE.Vector3(corner & 1 ? bounds.max.x : bounds.min.x, corner & 2 ? bounds.max.y : bounds.min.y, corner & 4 ? bounds.max.z : bounds.min.z).project(camera)
+      const x = (p.x + 1) / 2 * fullWidth, y = (1 - p.y) / 2 * fullHeight
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+    }
+    const pad = (y1 - y0) * 0.04
+    let w = x1 - x0 + 2 * pad, h = y1 - y0 + 2 * pad
+    if (w / h < shape) w = h * shape
+    else h = w / shape
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+    return { fullWidth, fullHeight, x: cx - w / 2, y: cy - h / 2, width: w, height: h }
+  }
+
+  // The camera that took the photo, kept for laying a picture painted from it back onto the clothes (see
+  // wearPhoto): its view and projection (near and far over the figure's span), its direction, the picture's
+  // size, the page's own photo (image, a canvas) and the depth the camera saw, drawn with the scene's own
+  // materials (so hidden skin and tucked cloth are left out, as in the photo) into a depth texture.
+  recordCapture(camera, width, height, image) {
+    const renderer = this.renderer
+    let depth = null
+    if (renderer.capabilities.isWebGL2) {
+      if (this.captureTarget && (this.captureTarget.width !== width || this.captureTarget.height !== height)) {
+        this.captureTarget.depthTexture?.dispose()
+        this.captureTarget.dispose()
+        this.captureTarget = null
+      }
+      if (!this.captureTarget) {
+        const depthTexture = new THREE.DepthTexture(width, height, THREE.UnsignedIntType)
+        this.captureTarget = new THREE.WebGLRenderTarget(width, height, { depthTexture, depthBuffer: true, stencilBuffer: false })
+      }
+      renderer.setRenderTarget(this.captureTarget)
+      renderer.render(this.scene, camera)
+      renderer.setRenderTarget(null)
+      depth = this.captureTarget.depthTexture
+    }
+    camera.updateMatrixWorld()
+    this.capture = {
+      viewMatrix: camera.matrixWorldInverse.clone(), projectionMatrix: camera.projectionMatrix.clone(),
+      near: camera.near, far: camera.far, direction: camera.getWorldDirection(new THREE.Vector3()),
+      width, height, image, mask: null, depth
+    }
+  }
+
+  // picture: a Blob, ImageBitmap or canvas of the last recorded photo (photoPasses) with the clothes painted
+  // over by the AI, or null to take it off. Laid onto every draped garment (and the model's jacket, coat or
+  // trousers when worn) from the camera that took the photo, so turning the figure shows the AI's clothes on
+  // the front, and the page's own cloth round the back (see fabric.js's PROJECTION). The page's light is
+  // taken out of the picture against the page's own photo, so the cloth is lit once, here. Never on the skin,
+  // the head or the floor. Comes off when the outfit, body or pose changes. onWearPhoto(on) is told.
+  async wearPhoto(picture) {
+    this.unwearPhoto()
+    if (!picture || !this.capture) return
+    const token = this.wearToken = Symbol("wear")
+    const source = picture instanceof Blob ? await createImageBitmap(picture) : picture
+    if (token !== this.wearToken) return
+    const capture = this.capture, { width, height } = capture
+    const draw = (from, blur = 0) => {
+      const canvas = document.createElement("canvas")
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext("2d", { willReadFrequently: true })
+      if (blur) context.filter = `blur(${blur}px)`
+      context.drawImage(from, 0, 0, width, height)
+      return canvas
+    }
+    const pixels = canvas => canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data
+    // The picture's blurred copy (its light, for mode 1) is blurred heavily.
+    const sharp = draw(source), flat = draw(source, Math.max(6, Math.round(width / 60))), base = draw(capture.image)
+    const tint = meanRatio(pixels(sharp), pixels(capture.image), capture.mask ? pixels(capture.mask) : null)
+    const textures = [sharp, flat, base].map((canvas, i) => {
+      const texture = new THREE.CanvasTexture(canvas)
+      texture.colorSpace = THREE.SRGBColorSpace
+      texture.anisotropy = i === 0 ? 8 : 1
+      return texture
+    })
+    this.worn = { textures, tint, outfit: outfitSignature(this.outfit), mode: this.projectionMode ?? 2 }
+    for (const material of this.projectableMaterials()) this.projectOnto(material)
+    this.onWearPhoto?.(true)
+    this.start()
+  }
+
+  unwearPhoto() {
+    this.wearToken = null
+    const worn = this.worn
+    if (!worn) return
+    this.worn = null
+    for (const material of this.projectableMaterials()) this.projectOnto(material)
+    for (const texture of worn.textures) texture.dispose()
+    this.onWearPhoto?.(false)
+    this.start()
+  }
+
+  // The cloth materials a picture can be laid on: the draped garments' (not their fit maps) and the model's
+  // jacket, coat and trousers.
+  projectableMaterials() {
+    const list = []
+    for (const d of Object.values(this.slots)) if (d) list.push(d.top.materials.main, d.top.materials.rib)
+    if (this.materials) for (const kind of ["jacket", "coat", "trousers"]) list.push(this.materials[kind].cloth)
+    return list
+  }
+
+  // Sets one material's projection uniforms to the picture worn now (or clears them).
+  projectOnto(material) {
+    const u = material.userData.uniforms ?? material.userData.projection
+    if (!u?.uProjected) return
+    const worn = this.worn, c = this.capture
+    if (!worn || !c) {
+      u.uProjectedOn.value = 0
+      u.uProjected.value = u.uProjectedFlat.value = u.uProjectedBase.value = u.uCaptureDepth.value = BLANK_TEXTURE
+      u.uCaptureDepthOn.value = 0
+      return
+    }
+    const [sharp, flat, base] = worn.textures
+    u.uProjected.value = sharp
+    u.uProjectedFlat.value = flat
+    u.uProjectedBase.value = base
+    u.uProjectedOn.value = 1
+    u.uProjectedMode.value = worn.mode
+    u.uProjectedTint.value.set(...worn.tint)
+    u.uCaptureVP.value.multiplyMatrices(c.projectionMatrix, c.viewMatrix)
+    u.uCaptureDepth.value = c.depth ?? BLANK_TEXTURE
+    u.uCaptureDepthOn.value = c.depth ? 1 : 0
+    u.uCaptureNearFar.value.set(c.near, c.far)
+    u.uCaptureSize.value.set(c.width, c.height)
+    u.uCaptureDir.value.copy(c.direction)
+  }
+
+  // Left alone, the mannequin turns slowly, as a shop's turntable does, so the clothes are seen all round; a
+  // touch stops it, and it starts again a while after. Not for anyone who's asked for less motion.
+  idleTurn() {
+    this.idle = { later: () => {}, stop: () => {} }
+    if (this.stillness) return
+    const controls = this.controls
+    controls.autoRotateSpeed = IDLE_TURN.speed
+    let timer = null
+    const later = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => { controls.autoRotate = true }, IDLE_TURN.after)
+    }
+    // A drag stops the idle turn and the reveal's turn alike.
+    controls.addEventListener("start", () => { controls.autoRotate = false; clearTimeout(timer); this.turn = null })
+    controls.addEventListener("end", later)
+    later()
+    this.idle = { later, stop: () => { clearTimeout(timer); controls.autoRotate = false } }
+    this.stopIdleTurn = this.idle.stop
+  }
+
+  // After the graphics were lost and given back: the studio's light made again from its map (it was drawn on
+  // the card, and without it everything is lit by the key light alone: a dark grey mannequin in dark clothes),
+  // the path tracer started afresh (its scene lived on the card), and the still picture from nothing.
+  restoreGraphics() {
+    if (this.studioMap) {
+      const pmrem = new THREE.PMREMGenerator(this.renderer)
+      this.scene.environment?.dispose()
+      this.scene.environment = pmrem.fromEquirectangular(this.studioMap).texture
+      pmrem.dispose()
+    }
+    if (this.trace) {
+      this.trace.dispose()
+      this.trace = new TracedStill(this)
+    }
+    this.still?.reset()
+    if (this.still) this.still.signature = null
+  }
+
+  // Contact shading (N8AO): the soft darkening where cloth folds, where an arm meets the body, under a
+  // collar and round the feet, as a room's light can't reach. It only darkens what's hidden, so a garment's
+  // colour stays the shop's in open light. Then the colours as the renderer would show them (tone mapping),
+  // and SMAA for clean edges (the screen's own smoothing doesn't work with it). Without WebGL 2, or if
+  // anything fails, the scene is drawn as before.
+  addEffects() {
+    try {
+      if (!this.renderer.capabilities.isWebGL2) return null
+      const size = this.renderer.getDrawingBufferSize(new THREE.Vector2())
+      const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType })
+      const composer = new EffectComposer(this.renderer, target)
+      const ao = new N8AOPass(this.scene, this.camera, size.x, size.y)
+      const phone = navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 820
+      ao.setQualityMode(phone ? "Performance" : "Medium")
+      ao.configuration.halfRes = phone
+      ao.configuration.gammaCorrection = false   // OutputPass does it
+      ao.configuration.transparencyAware = false // sheer cloth and the floor's shadow don't need it
+      ao.configuration.aoRadius = AO.radius
+      ao.configuration.distanceFalloff = AO.falloff
+      ao.configuration.intensity = AO.intensity
+      ao.configuration.screenSpaceRadius = false
+      composer.addPass(ao)
+      composer.addPass(new OutputPass())
+      composer.addPass(new SMAAPass(size.x, size.y))
+      return { composer, ao }
+    } catch {
+      return null
+    }
+  }
+
+  // How the backdrop's colours are to be painted. Drawn straight to the screen, an sRGB backdrop is shown as
+  // painted (three.js doesn't tone-map it); through the effects everything is tone-mapped at the end, which
+  // would sink the graphite stage to black and hide the floor's shadow in it. So with effects on, it's
+  // painted in the colours that come out as before.
+  backdropTone(exposure) {
+    return this.effects ? css => untoned(css, exposure) : css => css
+  }
+
+  // The scene, through the effects when there are any. Drawn outside the frame loop (a still picture), nothing
+  // is left half-way.
+  draw() {
+    if (!this.frameId) this.finishMoves()
+    // (The check's picture is drawn plain: no screen-space shading, see lookShot.)
+    if (this.effects && !this.plainDraw) this.effects.composer.render()
+    else this.renderer.render(this.scene, this.camera)
+  }
+
+  // Whether what's worn includes a draped garment (a top or casual jacket), which only the page can draw.
+  get hasDraped() {
+    return Object.values(this.slots).some(Boolean)
+  }
+
+  resize() {
+    // The canvas's own box (on a phone the controls sit above it), else its container's.
+    const box = this.canvas.clientHeight > 0 ? this.canvas : this.canvas.parentElement
+    const { clientWidth: width, clientHeight: height } = box
+    if (!width || !height) return
+    this.renderer.setSize(width, height, false)
+    this.effects?.composer.setPixelRatio(this.renderer.getPixelRatio())
+    this.effects?.composer.setSize(width, height)
+    this.camera.aspect = width / height
+    this.camera.updateProjectionMatrix()
+    if (this.calibration) this.frame()
+  }
+
+  start() {
+    if (this.frameId || !this.visible || this.contextLost) return
+    this.frameId = requestAnimationFrame(this.tick)
+  }
+
+  tick = () => {
+    if (this.contextLost) { this.frameId = null; return }
+    this.animate()
+    this.controls.update()
+    this.advanceDrape()
+    this.fitTuck()
+    this.wearBelt()
+    this.wearBag()
+    this.wearScarf()
+    this.wearCollars()
+    this.hideCovered()
+    if (!this.still?.draw()) this.draw()
+    this.frameId = this.visible ? requestAnimationFrame(this.tick) : null
+  }
+
+  // The garment hung up as a shop photographs it, for laying its photos on: in a worker (hanger.js, run by
+  // drape_worker.js) where there is one, so the page doesn't spend tens of seconds of its frames on it;
+  // here, a few milliseconds a frame, where there isn't or it fails. Either way, an object with the
+  // HangerDrape's advance(budget), done and positions.
+  // flat: laid out instead (hanger.js's flat), or null to hang it.
+  hangOff(d, flat = null) {
+    if (HANG_IN_WORKER && this.hangWorker === undefined) this.hangWorker = RemoteDrape.start(1)
+    const remote = this.hangWorker
+    if (!remote || remote.failed) return new HangerDrape(d.top, d.restX, { flat })
+    const id = `hang:${++this.hangs}`
+    const job = remote.hang(id, { top: hangerSpec(d.top), restX: d.restX, flat })
+    let local = null
+    return {
+      get done() { return local ? local.done : job.done },
+      get positions() { return local ? local.positions : job.x },
+      advance: budget => {
+        if (!local && job.failed) local = new HangerDrape(d.top, d.restX, { flat })
+        return local ? local.advance(budget) : !job.done
+      }
+    }
+  }
+
+  // The store's photographs onto a top's cloth, once it's draped and posed (redrape.js): the garment is
+  // simulated hanging as the store photographed it, a few milliseconds a frame, then each point takes its
+  // place in the photos. Runs after the drape, so the garment shows first in its colour and print, then as
+  // photographed. Once per draped garment (a new size drapes anew, and is re-draped anew).
+  // A garment's store photos read for re-draping (loadPhotoForRedrape), once per garment (its sizes share
+  // them; the cache holds the last few): a promise of { front, back } or null.
+  redrapePhotosFor(d, photos) {
+    this.redrapeCache ??= new Map()
+    const key = `${photos.front.length}:${photos.front.slice(-64)}|${photos.back?.length ?? 0}|${photos.part ?? ""}|${photos.worn ? "worn" : ""}`
+    if (!this.redrapeCache.has(key)) {
+      if (this.redrapeCache.size > 6) this.redrapeCache.delete(this.redrapeCache.keys().next().value)
+      const options = { labels: !d.top.bottoms, kind: d.top.bottoms ? "trousers" : "top", part: photos.part }
+      // A hood's drawcords hang over the front (redrape.js's paintCords).
+      const cords = !d.top.bottoms && d.top.cloth.panels.some(p => /^hood/.test(p))
+      this.redrapeCache.set(key, Promise.all([loadPhotoForRedrape(photos.front, undefined, { ...options, cords, worn: photos.worn }), photos.back ? loadPhotoForRedrape(photos.back, undefined, options) : null])
+        .then(([front, back]) => (front ? { front, back } : null)).catch(() => null))
+    }
+    return this.redrapeCache.get(key)
+  }
+
+  advanceRedrape() {
+    if (!REDRAPE_ON) return
+    for (const slot of ["bottom", "top", "outer"]) {
+      const d = this.slots[slot]
+      // The photos are read and the garment hung up as soon as its rest shape is known (in a worker, beside
+      // the drape into the pose); the photos are laid on once it's draped, posed and shown.
+      if (!d?.top || !d.restX) continue
+      const ready = d.top.done && !d.posing && d.shown
+      if (!ready && !(HANG_IN_WORKER && this.hangWorker !== null && typeof Worker !== "undefined")) continue
+      const item = d.top.item, photos = d.top.photos
+      // New photos for a garment already hung (see setOutfit's redrapeSwap): read, then laid on again.
+      if (d.redrapeSwap && photos && (d.redrapeState === "hanging" || d.redrapeState === "done") && !d.redrapeSwapping) {
+        d.redrapeSwap = false
+        d.redrapeSwapping = true
+        this.redrapePhotosFor(d, photos).then(read => {
+          d.redrapeSwapping = false
+          if (this.slots[slot] !== d || !read) return
+          d.redrapePhotos = read
+          // (Done, its hanging was let go: laid on again from the shape it kept, hung no further.)
+          if (d.redrapeState === "done") {
+            d.hanger ??= { positions: d.hanging, done: true, advance: () => false, chosen: d.hangTrial?.chosen, scores: d.hangTrial?.scores }
+            d.redrapeState = "hanging"
+          }
+          this.start()
+        })
+      }
+      if (!photos || d.redrapeState === "done" || d.redrapeState === "off") continue
+      if (!d.redrapeState) {
+        d.redrapeState = "loading"
+        // When each step finished, ms after the photos were asked for (the validation runner reports them).
+        d.redrapeTimes = { asked: performance.now() }
+        this.redrapePhotosFor(d, photos).then(photos => {
+          if (this.slots[slot] !== d) return
+          if (!photos) { d.redrapeState = "off"; return }
+          d.redrapePhotos = photos
+          if (d.redrapeTimes) d.redrapeTimes.photos = performance.now() - d.redrapeTimes.asked
+          // A top is hung up and laid out a few ways, and the one whose outline matches the front photo best
+          // is the one the photos are laid on by (silhouette.js); pants are hung by the waist.
+          d.hanger = TRIAL_ON && !d.top.bottoms ? new HangTrial(TRIALS.map(flat => ({ flat, hanger: this.hangOff(d, flat) })), d.top, photos.front) : this.hangOff(d)
+          d.redrapeState = d.hanger.done ? "off" : "hanging"
+          this.start()
+        })
+        continue
+      }
+      if (d.redrapeState !== "hanging") continue
+      if (d.hanger.advance(this.drapeBudget)) { this.redraw(); continue }
+      if (!ready) continue
+      try {
+        const { front, back } = d.redrapePhotos
+        if (d.redrapeTimes) d.redrapeTimes.hung = performance.now() - d.redrapeTimes.asked
+        const uv = registerPhoto(d.top, d.hanger.positions, front, back)
+        // The photo laid straight, piece by piece, not bent row by row; then lettering and logos as one piece each.
+        d.straight = straightPattern(d.top, uv, front, 1) + (back ? straightPattern(d.top, uv, back, 3) : 0)
+        d.rigid = rigidPrints(d.top, uv, front, 1) + (back ? rigidPrints(d.top, uv, back, 3) : 0)
+        // Nothing laid on the backdrop past the photo's outline (white slits at a hem's corners).
+        d.offCloth = keepOnCloth(d.top, uv, { front, back })
+        // No skin, hair or backdrop on the cloth: a point that lands on any takes its neighbour's place.
+        d.foreign = guardForeign(d.top, uv, { front, back })
+        // Plain cloth on the pieces the photos don't really show (a hood, a sleeve that took the body's
+        // lettering, a back with no photo of its own), never something that isn't the garment.
+        // (A top with graphics down its sleeves keeps them as they were read and placed, on plain sleeves: on
+        // a photo of it laid flat each is folded round the sleeve's edge, half on the front photo and half on
+        // the back, and laid point for point the halves came out smeared, apart, and round the back of the arm:
+        // the graphics the page had first shown down the sleeves were gone from the front.)
+        d.trust = trustPieces(d.top, uv, { front, back }, { sleeves: Boolean(d.sleevePrint), allOver: Boolean(d.allOverPrint) })
+        d.sleevesPlaced = Boolean(d.sleevePrint) && d.trust.plain.some(name => /^sleeve/.test(name))
+        if (d.redrapeTimes) d.redrapeTimes.laid = performance.now() - d.redrapeTimes.asked
+        // (The collar's colour and its strip are read from the photo as it is; then, where a collar is drawn
+        // folded over the shirt, the photo's own flat one is painted out from under it, front and back: paintOutCollar.)
+        const collar = front.collarTone ??= { colour: collarColour(front), strip: collarStrip(front) }
+        if (!front.worn && hasCollar(d.top.item) && d.top.cloth.edges["collar/rim"]?.length && d.top.pattern?.panels?.collar?.place?.toward !== "fall") for (const photo of [front, back]) if (photo && !photo.worn) paintOutCollar(photo, photo === back)
+        d.redrape = { image: front.flat ?? front.canvas, back: back ? { image: back.flat ?? back.canvas } : null, uv, collar: collar.colour, collarStrip: collar.strip }
+        d.redrapeState = "done"
+        // A cut-out the listing names that the photo shows covered (a drape over it) isn't cut.
+        const hole = d.top.geometry.attributes.aHole
+        if (hole) {
+          let kept = false
+          for (let i = 0; i < hole.count; i++) {
+            if (!(hole.array[i] > 0)) continue
+            const photo = uv[3 * i + 2] === 3 && back ? back : front
+            if (showsCloth(photo, uv[3 * i], uv[3 * i + 1])) { hole.array[i] = 0; kept = true }
+          }
+          if (kept) hole.needsUpdate = true
+        }
+        d.top.setPrint(null, null)
+        d.top.setSleeves(d.sleevesPlaced ? d.sleevePrint : null)
+        d.top.setCuffTone(d.sleevesPlaced ? d.cuffTone ?? null : null)
+        d.top.setPhotoMap(d.redrape)
+        this.onRedrape?.(slot, item)
+      } catch (error) {
+        console.warn("[redrape] couldn't lay the photo on:", error)
+        d.redrapeState = "off"
+      }
+      // The hanging shape kept (a few hundred KB) for the validation's silhouette check.
+      d.hanging = d.hanger.positions
+      // (Which way it was hung, and how well each matched: the validation runner reports it.)
+      d.hangTrial = d.hanger.scores ? { chosen: d.hanger.chosen, scores: d.hanger.scores } : null
+      d.hanger = null
+      this.redraw()
+    }
+  }
+
+  // Each garment metered to its shop photo once it's draped, shown and (when its photos are laid on) re-draped,
+  // one at a time; again when the scene's light changes.
+  // What a garment's metering was for: metered again when any of it changes.
+  meterKey(d) {
+    return `${d.top.item.photoCloth}|${d.redrapeState ?? ""}|${this.sceneLook}|${d.top.closeupTexture ? "closeup" : ""}`
+  }
+
+  advanceMeter() {
+    if (!METER_ON) return
+    for (const slot of this.order) {
+      const d = this.slots[slot], item = d?.top?.item
+      if (!item?.photoCloth || !d.top.done || d.posing || !d.shown) continue
+      if (d.redrapeState && !["done", "off"].includes(d.redrapeState)) continue
+      const key = this.meterKey(d)
+      if (d.metered === key || d.metering) continue
+      d.metering = true
+      this.meter(slot, item.photoCloth)
+        .then(gain => { if (this.slots[slot] === d) { d.metered = key; d.meterGain = gain; this.onMeter?.(slot, gain) } })
+        .catch(error => console.warn("[meter]", error))
+        .finally(() => { d.metering = false; this.still?.reset(); this.start() })
+      return
+    }
+  }
+
+  // The colour (sRGB [r, g, b]) of `slot`'s cloth as the page shows it where the light falls on it: the whole scene drawn as on
+  // screen (its shading and contact shadows too, which a reading of the garment alone misses by half a stop),
+  // from the front, and read where a second pass shows only that garment. Null for too little cloth seen.
+  async meterShot(slot, hex = null) {
+    const d = this.slots[slot]
+    if (!d?.top?.mesh) return null
+    if (d.fade) this.finishFade(d)
+    const position = this.camera.position.clone()
+    const size = { width: 240, height: 360 }
+    let picture, mask
+    try {
+      this.faceFront()
+      this.turnCamera(FRONT_ANGLE)
+      this.controls.update()
+      picture = this.photoPassesSync({ ...size, guides: false, record: false, close: true, quick: true, read: true })
+      // The same view with only this garment, flat white on black: the camera sees one layer, the garment's
+      // (nothing hidden, so the figure is framed the same way).
+      const keep = d.top.mesh
+      keep.traverse(o => o.layers.enable(METER_LAYER))
+      const background = this.scene.background
+      this.scene.background = new THREE.Color(0x000000)
+      this.scene.overrideMaterial = METER_MASK
+      this.camera.layers.set(METER_LAYER)
+      this.plainDraw = true
+      try {
+        mask = this.photoPassesSync({ ...size, guides: false, record: false, close: true, quick: true, read: true })
+      } finally {
+        this.plainDraw = false
+        this.camera.layers.set(0)
+        this.scene.overrideMaterial = null
+        this.scene.background = background
+        keep.traverse(o => o.layers.disable(METER_LAYER))
+      }
+    } finally {
+      // (All put back before anything's awaited: see photoPassesSync.)
+      this.camera.position.copy(position)
+      this.controls.update()
+      this.still?.reset()
+      this.draw()
+      this.start()
+    }
+    const target = typeof hex === "string" ? [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)) : null
+    return clothMedian(picture.pixels, mask.pixels, target)
+  }
+
+  // The gain that draws `slot`'s cloth the colour `hex` (sRGB) under the stage's light. Sets it as it goes.
+  async meter(slot, hex) {
+    const d = this.slots[slot]
+    const target = linearOf(hex)
+    // The exposure (one number) does the metering; the white balance (per channel, about the exposure) may
+    // move only a little: a garment whose cloth is drawn redder than its photo's (a camo's tile taken from
+    // its redder patches) mustn't have its white drawcords and zip turned blue to make up for it.
+    let exposure = 1, balance = [1, 1, 1]
+    const gainOf = () => balance.map(b => Math.min(METER_GAIN[1], Math.max(METER_GAIN[0], exposure * b)))
+    let gain = gainOf()
+    d.top.setMeter(gain)
+    const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    for (let pass = 0; pass < METER_PASSES; pass++) {
+      const seen = await this.meterShot(slot, hex)
+      if (this.slots[slot] !== d) break
+      if (!seen) break
+      const lin = linearOf(seen)
+      // (A little added to both: on black cloth the ratio of two near-nothings would swing the gain about.)
+      const step = (lum(target) + METER_FLOOR) / (lum(lin) + METER_FLOOR)
+      exposure *= step
+      balance = balance.map((b, c) => Math.min(1 + METER_BALANCE, Math.max(1 - METER_BALANCE, (b * (target[c] + METER_FLOOR)) / (lin[c] + METER_FLOOR) / step)))
+      const next = gainOf()
+      const moved = next.some((g, c) => Math.abs(g - gain[c]) > 0.01)
+      gain = next
+      d.top.setMeter(gain)
+      if (!moved) break
+    }
+    return gain
+  }
+
+  // How far the drawn cloth is from its photo's: { target, seen (sRGB [r, g, b]), deltaE (CIE76 Lab), gain }
+  // for a metered slot, or null. For the harness and the nightly accuracy run.
+  async meterReport(slot) {
+    const d = this.slots[slot], item = d?.top?.item
+    if (!item?.photoCloth || !d.top.done) return null
+    const seen = await this.meterShot(slot, item.photoCloth)
+    if (!seen) return null
+    const target = [1, 3, 5].map(i => parseInt(item.photoCloth.slice(i, i + 2), 16))
+    return { target, seen, deltaE: deltaE(target, seen), gain: d.meterGain ?? null }
+  }
+
+  // A few milliseconds of draping per frame, so the page stays smooth while the cloth settles: the pants
+  // first, then the top over them.
+  advanceDrape() {
+    // Once everything is on and as it will stay (or nothing's being put on), say so, once: the page's loader
+    // goes, and the figure makes its turn. Settled with something still to come (finished), the loader stays.
+    if (this.settled) {
+      this.advanceRedrape()
+      this.advanceMeter()
+      this.pendingSince = this.pending() ? this.pendingSince ?? performance.now() : null
+      if (this.finished) {
+        if (this.busy) { this.busy = false; this.onDrape?.("done", true) }
+        if (this.revealed) { this.revealed = false; this.reveal() }
+      } else if (this.busy) this.onDrape?.("finishing", false)
+    } else {
+      this.pendingSince = null
+      this.announceBusy()
+    }
+    // A tucked top waits to be shown until the pants it's tucked into are (it's cut short, to end inside them).
+    for (const slot of this.order) if (this.slots[slot]?.final && !this.slots[slot].posing) this.show(this.slots[slot])
+    for (const slot of this.order) {
+      const spec = this.waiting[slot]
+      if (spec && this.under(slot).every(d => d.top.done)) {
+        delete this.waiting[slot]
+        this.startDrape(spec)
+        this.redraw()
+      }
+    }
+    for (const slot of this.order) {
+      const d = this.slots[slot]
+      if (!d) continue
+      if (!d.top.done) {
+        d.top.advance(this.drapeBudget)
+        this.onDrape?.(d.top.phase, d.top.done)
+        return
+      }
+      // It moves into a pose once the layers under it are there.
+      if (this.under(slot).some(u => u.posedAs !== this.pose || u.posing)) return
+      if (d.posedAs !== this.pose) {
+        this.reposeDraped(d)
+        return
+      }
+      if (d.posing) {
+        this.onDrape?.("posing", false)
+        const end = performance.now() + this.drapeBudget
+        let now = performance.now()
+        while (now < end) {
+          const next = d.posing.next()
+          const after = performance.now()
+          if (d.top.phaseMs) d.top.phaseMs.posing = (d.top.phaseMs.posing ?? 0) + (after - now)
+          now = after
+          if (next.done) { d.posing = null; d.top.shade(); break }
+          if (next.value === WAITING) break
+        }
+        if (!d.final) return
+        // (Laid out again only when its points have moved: settled in the worker they come a few times a
+        // second, and laying a shirt's fine mesh out again every frame between took most of each frame.)
+        if (!d.posing || !d.top.remote || d.laidOut !== d.top.drape.frame) { d.top.update(); d.laidOut = d.top.drape.frame }
+        // It's sewn and moved into the pose shown: show it in place of the one before.
+        this.show(d)
+        if (!d.posing && this.finished) this.onDrape?.("done", true)
+        if (d.posing) return
+      }
+    }
+  }
+
+  // How far along getting everything on screen is, 0 to 1: each garment's drape counts for most of its
+  // share, moving it into the pose for the rest; a garment waiting for the one under it counts as not begun.
+  progress() {
+    const parts = []
+    for (const slot of this.order) {
+      if (this.waiting[slot]) { parts.push(0); continue }
+      const d = this.slots[slot]
+      if (!d) continue
+      if (!d.top.done) parts.push(0.8 * d.top.progress())
+      else if (d.posedAs !== this.pose || d.posing) parts.push(0.8 + 0.2 * (d.posedAs === this.pose ? d.poseStep ?? 0 : 0))
+      else parts.push(1)
+    }
+    return parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 1
+  }
+
+  // A garment sewn and in the pose shown goes on screen: it fades in over a moment (see animate) while the
+  // one it replaces, if any, stays until the fade is done, so nothing blinks; then the figure is framed for
+  // the outfit and, once everything's on, makes its slow turn (see reveal).
+  show(d) {
+    if (d.shown) return
+    // The outfit appears all at once, when every piece is sewn and in its pose: until then the loader runs and
+    // what was on before stays on, rather than pieces arriving one by one and settling in view.
+    if (!this.settled) return
+    const pants = this.slots.bottom
+    if (d.slot === "top" && this.order === TUCKED_LAYERS && pants && !pants.shown) return
+    d.shown = true
+    d.top.mesh.visible = true
+    d.fade = { t0: performance.now(), materials: Object.values(d.top.materials).map(material => ({ material, transparent: material.transparent })) }
+    for (const { material } of d.fade.materials) { material.transparent = true; material.opacity = 0 }
+    this.revealed = true
+    this.frameOutfit()
+    this.start()
+  }
+
+  advanceFade(d, now = performance.now()) {
+    const t = (now - d.fade.t0) / REVEAL.fade
+    const opacity = easeInOut(t)
+    for (const { material } of d.fade.materials) material.opacity = opacity
+    if (t >= 1) this.finishFade(d)
+  }
+
+  // The fade's end: the cloth's materials as they were (opaque, unless the cloth is sheer), the garment it
+  // replaced gone.
+  finishFade(d) {
+    if (!d.fade) return
+    for (const { material, transparent } of d.fade.materials) { material.opacity = 1; material.transparent = transparent }
+    d.fade = null
+    this.dropLeaving(d.slot)
+  }
+
+  finishFades() {
+    for (const d of Object.values(this.slots)) if (d?.fade) this.finishFade(d)
+  }
+
+  // Everything in motion brought to its end at once: the camera where it was going, garments fully shown,
+  // the slow turn dropped where it is. For a still picture, and when the scene is drawn without the frame loop.
+  finishMoves() {
+    this.turn = null
+    if (this.cameraMove) this.animate(Infinity)
+    this.finishFades()
+  }
+
+  // A tucked top isn't drawn below where the pants' waistband actually lies (see DrapedTop#tuckedAway).
+  fitTuck() {
+    const top = this.slots.top?.top, bottom = this.slots.bottom
+    if (this.order !== TUCKED_LAYERS || !top?.drape.tuck || !bottom?.shown) return
+    const { drape, cloth } = bottom.top
+    const stamp = `${drape.frame}:${bottom.posedAs}:${top.drape.frame}`
+    if (this.tuckStamp === stamp) return
+    this.tuckStamp = stamp
+    const points = [...new Set((cloth.edges["waistband/rim"] ?? []).map(i => (drape.map ? drape.map[i] : i)))]
+    top.setRim(points.map(j => [drape.x[3 * j], drape.x[3 * j + 1], drape.x[3 * j + 2]]))
+  }
+
+  dispose() {
+    this.stopIdleTurn?.()
+    cancelAnimationFrame(this.frameId)
+    this.unwearPhoto()
+    this.captureTarget?.depthTexture?.dispose()
+    this.captureTarget?.dispose()
+    for (const slot of LAYERS) this.removeDraped(slot)
+    this.resizeObserver.disconnect()
+    this.intersectionObserver.disconnect()
+    this.controls.dispose()
+    this.scene.traverse(object => {
+      object.geometry?.dispose()
+      for (const material of [object.material].flat().filter(Boolean)) {
+        for (const value of Object.values(material)) if (value?.isTexture) value.dispose()
+        material.dispose()
+      }
+    })
+    this.scene.environment?.dispose()
+    this.effects?.composer.dispose()
+    this.effects?.ao.dispose?.()
+    this.renderer.dispose()
+  }
+}
+
+// Whether a garment has a shirt's or polo's collar, drawn folded over it (wearCollars).
+function hasCollar(item) {
+  const seen = item.cut?.photo?.collar
+  return item.cut?.collar === "shirt" || (seen ? seen === "shirt" : ["shirt", "shortshirt", "polo", "rugby", "tailored"].includes(item.style) || Boolean(item.cut?.collar))
+}
+
+// A collar's leaf (see wearCollars): from the stand's top edge, folded down over it and lying on the shirt
+// below, as a strip round the neck, open at the front. top: the shirt's DrapedTop as draped now.
+// The leaf is as long as a collar's is (collar.js's COLLAR_LEAF: from its fold at the stand's top to its edge), and its
+// edge rests on the shirt: on the yoke round the back and sides, on the chest at its points. From the fold to
+// there it's taut (it stands a little off the stand's foot, as a collar's roll does). It used to come down a
+// set height while flaring out a set width (up to 9 cm down and 7 cm out at the points), whatever was under
+// it: a brim standing off the shirt, its points out in the air in front of the chest, half as big again as the
+// collar in the photo.
+// A mesh's points where they are in the scene (x, y, z): its own array when it stands where it was made.
+function worldPoints(mesh) {
+  const attribute = mesh.geometry.attributes.position
+  mesh.updateWorldMatrix(true, false)
+  const e = mesh.matrixWorld.elements
+  const still = e[0] === 1 && e[5] === 1 && e[10] === 1 && e[15] === 1 && !e[1] && !e[2] && !e[3] && !e[4] && !e[6] && !e[7] && !e[8] && !e[9] && !e[11] && !e[12] && !e[13] && !e[14]
+  if (still && !attribute.isInterleavedBufferAttribute && attribute.itemSize === 3) return attribute.array
+  const out = new Float32Array(3 * attribute.count), v = new THREE.Vector3()
+  for (let i = 0; i < attribute.count; i++) { v.fromBufferAttribute(attribute, i).applyMatrix4(mesh.matrixWorld); out[3 * i] = v.x; out[3 * i + 1] = v.y; out[3 * i + 2] = v.z }
+  return out
+}
+
+function collarLeaf(top, scale) {
+  const { drape, cloth, mesh } = top
+  const rim = cloth.edges["collar/rim"]
+  if (!rim?.length) return null
+  // (A collar cut to lie down is all there in the cloth.)
+  if (top.pattern?.panels?.collar?.place?.toward === "fall") return null
+  const at = i => { const j = drape.map ? drape.map[i] : i; return new THREE.Vector3(drape.x[3 * j], drape.x[3 * j + 1], drape.x[3 * j + 2]) }
+  const points = rim.map(at)
+  const centre = points.reduce((c, p) => c.add(p), new THREE.Vector3()).multiplyScalar(1 / points.length)
+  const angle = p => Math.atan2(p.x - centre.x, p.z - centre.z)
+  // The rim by angle round the neck (0 at the front, toward +x), from the back round to the back.
+  const leaf = COLLAR_LEAF[["polo", "rugby"].includes(top.item.style) ? "polo" : "shirt"]
+  const around = 72, columns = []
+  // (The rim between its points on either side of each angle: taken at the nearest point, the fold stepped.)
+  const ring = points.map(p => ({ p, a: angle(p) })).sort((m, n) => m.a - n.a)
+  for (let j = 0; j <= around; j++) {
+    const a = (j / around) * 2 * Math.PI - Math.PI
+    // Open at the front: a shirt's collar points stand apart either side of its open neck (closed to a sliver,
+    // the leaf read as a ring round the neck, a stand collar, not a shirt's); a polo's meet over its placket.
+    if (Math.abs(a) < leaf.open) { columns.push(null); continue }
+    let next = ring.findIndex(m => m.a >= a)
+    if (next < 0) next = 0
+    const after = ring[next], before = ring[(next - 1 + ring.length) % ring.length]
+    const gap = ((after.a - before.a) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI), from = ((a - before.a) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)
+    columns.push({ a, p: before.p.clone().lerp(after.p, gap > 1e-6 ? Math.min(1, from / gap) : 0) })
+  }
+  const rows = 9, positions = [], uvs = [], index = [], start = []
+  const STEPS = 14, STEP = 0.006 * scale, GAP = 0.004 * scale
+  // The shirt as it lies, looked down on at every point the leaf is laid over: its triangles round the neck
+  // found once (collar.js's surfaceUnder), not a ray cast at the whole shirt for each of a thousand points.
+  const reach = Math.max(...columns.map(c => (c ? Math.hypot(c.p.x - centre.x, c.p.z - centre.z) : 0))) + (STEPS + 2) * STEP
+  const drawn = mesh.geometry.drawRange
+  const below = surfaceUnder(worldPoints(mesh), mesh.geometry.index?.array ?? null, [centre.x, centre.z], reach, { from: drawn.start, to: drawn.start + drawn.count })
+  for (const column of columns) {
+    if (!column) { start.push(-1); continue }
+    const { a, p } = column
+    start.push(positions.length / 3)
+    // Where on a photo of the collar (collarTexture) this column is: the wearer's right point at the left
+    // edge, round the back of the neck in the middle, to the left point at the right edge.
+    const across = a < 0 ? (a + Math.PI) / (2 * Math.PI) : 0.5 + a / (2 * Math.PI)
+    const u = new THREE.Vector3(Math.sin(a), 0, Math.cos(a))
+    // Longer toward the front, where the collar's points are.
+    const front = leafFront(a), long = leafLength(leaf, a, scale)
+    const rimR = Math.hypot(p.x - centre.x, p.z - centre.z)
+    // What's under it here, as [out from the neck's middle, height]: the shirt as it lies, looked down on at
+    // steps out from the stand.
+    const fold = [rimR + 0.004 * scale, p.y + GAP]
+    const under = []
+    for (let k = 1; k <= STEPS; k++) {
+      const out = rimR + 0.002 * scale + k * STEP
+      const lies = below(centre.x + u.x * out, centre.z + u.z * out, p.y - 0.004)
+      // (Past the shirt's edge, an open front's, it hangs.)
+      under.push([out, lies !== null ? lies + GAP : (under[under.length - 1]?.[1] ?? p.y) - STEP * 2])
+    }
+    // Its edge rests on the shirt where that's the leaf's length from the fold; from the fold to there it's
+    // taut (leafLine).
+    const line = leafLine(fold, under, long)
+    for (let r = 0; r <= rows; r++) {
+      const t = r / rows, [out, y0] = alongLine(line, t, long)
+      // (Toward its points the leaf swings out round the neck as it comes down: they lie apart.)
+      const turned = a + Math.sign(a) * leaf.spread * front * t
+      const ux = Math.sin(turned), uz = Math.cos(turned)
+      // (Swung round, it's over another part of the shirt than its line was laid on: never under the cloth
+      // there. A point's tip dipped into the chest's folds, and showed as a hatch of dark lines beside it.)
+      const here = r && turned !== a ? below(centre.x + ux * out, centre.z + uz * out, p.y - 0.004) : null
+      const y = here !== null ? Math.max(y0, here + GAP) : y0
+      // Its outside, then its underside (a little nearer the shirt).
+      positions.push(centre.x + ux * out, y, centre.z + uz * out)
+      positions.push(centre.x + ux * (out - COLLAR_THICK * 0.4 * scale), y - COLLAR_THICK * (r ? 1 : 0.3) * scale, centre.z + uz * (out - COLLAR_THICK * 0.4 * scale))
+      uvs.push(across, 1 - t, across, 1 - t)
+    }
+  }
+  // Each row is two points (outside, underside): the leaf's two faces, its edge along the bottom, and its ends
+  // where it stops at the front.
+  const at2 = (c, r, under) => start[c] + 2 * r + (under ? 1 : 0)
+  for (let c = 0; c + 1 < columns.length; c++) {
+    if (start[c] < 0 || start[c + 1] < 0) continue
+    for (let r = 0; r < rows; r++) {
+      index.push(at2(c, r, 0), at2(c + 1, r, 0), at2(c, r + 1, 0), at2(c, r + 1, 0), at2(c + 1, r, 0), at2(c + 1, r + 1, 0))
+      index.push(at2(c, r, 1), at2(c, r + 1, 1), at2(c + 1, r, 1), at2(c, r + 1, 1), at2(c + 1, r + 1, 1), at2(c + 1, r, 1))
+    }
+    index.push(at2(c, rows, 0), at2(c + 1, rows, 0), at2(c, rows, 1), at2(c, rows, 1), at2(c + 1, rows, 0), at2(c + 1, rows, 1))
+  }
+  for (let c = 0; c < columns.length; c++) {
+    if (start[c] < 0 || !(start[c - 1] === -1 || start[c + 1] === -1)) continue
+    for (let r = 0; r < rows; r++) index.push(at2(c, r, 0), at2(c, r + 1, 0), at2(c, r, 1), at2(c, r, 1), at2(c, r + 1, 0), at2(c, r + 1, 1))
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(index)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+// Socks when none were picked: with closed shoes under long pants, a plain dark crew sock, as most people wear.
+// Bare, the mannequin's white ankle shows between the hem and the shoe (the hem tents over the instep) and
+// reads as a white sock. Not with sandals, mules or heels, nor under shorts or a skirt.
+const DEFAULT_SOCK = "#2b2c30"
+export function defaultSocks(worn) {
+  const shoes = worn.shoes, pants = worn.trousers
+  if (!shoes || !pants || ["shorts", "skirt"].includes(pants.style)) return null
+  if (shoes.style === "sandal" || /\b(?:mules?|slides?|sandals?|flip[- ]?flops?|heels?|pumps?|stilettos?|slingbacks?|thongs?)\b/i.test(`${shoes.name ?? ""} ${shoes.words ?? ""}`.slice(0, 200))) return null
+  return { style: "crew", color: DEFAULT_SOCK, fabric: "knit", auto: true }
+}
+
+// A mesh as it stands now, in world space, as something to drape over.
+function meshSnapshot(mesh) {
+  mesh.updateWorldMatrix(true, false)
+  const a = mesh.geometry.attributes.position, v = new THREE.Vector3()
+  const positions = new Float32Array(3 * a.count)
+  for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).applyMatrix4(mesh.matrixWorld); positions[3 * i] = v.x; positions[3 * i + 1] = v.y; positions[3 * i + 2] = v.z }
+  const index = Uint32Array.from(mesh.geometry.index.array)
+  return { positions, normals: vertexNormals(positions, index), index }
+}
+
+// A draped garment as something to drape over: its cloth's points (x, the drape's joined points) as a
+// triangle mesh with normals. A tucked top is left out from a little above the pants' waistband down: the
+// pants cover it, and where it comes out of them, its edge and theirs together would snag the cloth over
+// them.
+function clothSnapshot(x, garment, body = null) {
+  const map = garment.drape.map
+  const away = garment.tuckedAway?.(x, -0.025)
+  let triangles = garment.triangles
+  if (away) triangles = Uint32Array.from(triangles).filter((_, k, all) => { const t = k - (k % 3); return !(away[all[t]] > 0 && away[all[t + 1]] > 0 && away[all[t + 2]] > 0) })
+  const index = Uint32Array.from(triangles, i => (map ? map[i] : i))
+  const positions = Float32Array.from(x)
+  const normals = vertexNormals(positions, index)
+  if (body) faceAway(positions, normals, body)
+  // (Pants and skirts are marked: the collision field's layers are built from them; and so are a top's sleeves,
+  // which a jacket's sleeves don't collide with: see collisionBody.)
+  const sleeves = garment.bottoms ? null : Uint8Array.from(garment.drape.sleeveSides(), side => (side ? 1 : 0))
+  return { positions, normals, index, bottoms: Boolean(garment.bottoms), sleeves }
+}
+
+// Cloth folded over on itself (loose pants bunched at the hip) faces both ways at once, and a layer sewn over
+// it would be pulled into the fold and held there, its seams then dragging the rest of it down after. Its
+// normals all face away from the body instead (the way the nearest skin faces), so the fold is pushed out of like any other cloth.
+function faceAway(positions, normals, body) {
+  const cell = 0.03, grid = new Map(), B = body.positions
+  const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`
+  for (let i = 0; i < B.length / 3; i++) {
+    const k = key(B[3 * i], B[3 * i + 1], B[3 * i + 2])
+    if (!grid.has(k)) grid.set(k, [])
+    grid.get(k).push(i)
+  }
+  for (let j = 0; j < positions.length / 3; j++) {
+    const x = positions[3 * j], y = positions[3 * j + 1], z = positions[3 * j + 2]
+    const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell)
+    let best = -1, bestD = Infinity
+    for (let r = 0; r <= 3 && best < 0; r++) {
+      for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) !== r) continue
+        for (const i of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
+          const d = (B[3 * i] - x) ** 2 + (B[3 * i + 1] - y) ** 2 + (B[3 * i + 2] - z) ** 2
+          if (d < bestD) { bestD = d; best = i }
+        }
+      }
+    }
+    if (best < 0) continue
+    const M = body.normals
+    if (M[3 * best] * normals[3 * j] + M[3 * best + 1] * normals[3 * j + 1] + M[3 * best + 2] * normals[3 * j + 2] < 0) {
+      normals[3 * j] *= -1; normals[3 * j + 1] *= -1; normals[3 * j + 2] *= -1
+    }
+  }
+}
+
+function applyInfluences(mesh, influences) {
+  const dictionary = mesh.morphTargetDictionary
+  if (!dictionary) return
+  for (const [name, value] of Object.entries(influences)) {
+    const index = dictionary[name]
+    if (index !== undefined) mesh.morphTargetInfluences[index] = value
+  }
+}
+
+// The egg head grown, when it must be, to hold the head as it stands (body: a snapshot), with a
+// little room: a hood drapes over the egg, so any of the head outside it (the crown of the women's
+// mannequin, a head made bigger with the body) would show through the hood.
+function coverHead(egg, body) {
+  if (!egg) return egg
+  const frame = bodyFrame(body)
+  const p = body.positions, n = p.length / 3, above = frame.joints.head?.[1] ?? -Infinity
+  let reach = 0
+  for (let i = 0; i < n; i++) {
+    if (frame.part[i] !== 3 || p[3 * i + 1] < above) continue
+    // The crown, the sides and the back, which a hood covers; not the face (the nose, the chin).
+    if (p[3 * i + 2] > egg.centre[2] + egg.radii[2] * 0.3 || p[3 * i + 1] < egg.centre[1] - egg.radii[1] * 0.4) continue
+    let sum = 0
+    for (let c = 0; c < 3; c++) sum += ((p[3 * i + c] - egg.centre[c]) / egg.radii[c]) ** 2
+    reach = Math.max(reach, Math.sqrt(sum))
+  }
+  const grow = reach * HEAD_ROOM
+  return grow > 1 ? { centre: egg.centre, radii: egg.radii.map(r => r * grow) } : egg
+}
+const HEAD_ROOM = 1.04
+
+// The mannequin's surface refined (mannequin_surface.js): its face softened (and the women's shape key's
+// offsets there with it), its normals worked out again, smooth and in full precision.
+function refineMannequin(mesh) {
+  const geometry = mesh.geometry, position = geometry.attributes.position, normal = geometry.attributes.normal
+  if (!geometry.index || !position) return
+  const reference = new Float32Array(3 * position.count)
+  for (let i = 0; i < position.count; i++) { reference[3 * i] = normal.getX(i); reference[3 * i + 1] = normal.getY(i); reference[3 * i + 2] = normal.getZ(i) }
+  const head = geometry.attributes._head?.array
+  if (head) {
+    const women = mesh.morphTargetDictionary?.women
+    const fields = [position.array, ...(women !== undefined ? [geometry.morphAttributes.position[women].array] : [])]
+    softenHead(fields, position.array, geometry.index.array, head)
+  }
+  geometry.setAttribute("normal", new THREE.BufferAttribute(weldedNormals(position.array, geometry.index.array, reference), 3))
+  position.needsUpdate = true
+  for (const shape of geometry.morphAttributes.position ?? []) shape.needsUpdate = true
+  geometry.computeBoundingSphere()
+}
+
+// White satin fibreglass, like a good shop's display mannequin: a soft sheen in its clear coat that picks out
+// its shape, nothing glossy enough to pull the eye from the clothes. The body is hidden wherever a worn garment
+// covers it (the build marks those parts), since clothes fit too close for it not to show through, and
+// where its head is (an egg takes its place).
+function mannequinMaterial() {
+  const hideJacket = { value: 0 }
+  const hideCasual = { value: 0 }
+  const hideTrousers = { value: 0 }
+  const hideShoe = { value: 0 }
+  // (Under this height, the shoes' top, the inside is the shoe's dark inside: see coverFeet.)
+  const shoeLine = { value: -1e9 }
+  // Both sides drawn, so where the neck is cut and meets the egg's neck, any sliver of the inside is white too.
+  const finish = { color: 0xf4f2ee, ...WHITE_FINISH, metalness: 0, side: THREE.DoubleSide }
+  const material = new THREE.MeshPhysicalMaterial(finish)
+  material.userData = { hideJacket, hideCasual, hideTrousers, hideShoe, shoeLine, plain: new THREE.MeshPhysicalMaterial(finish) }
+  material.onBeforeCompile = shader => {
+    shader.uniforms.uHideJacket = hideJacket
+    shader.uniforms.uHideCasual = hideCasual
+    shader.uniforms.uHideTrousers = hideTrousers
+    shader.uniforms.uHideShoe = hideShoe
+    shader.uniforms.uShoeLine = shoeLine
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>
+        attribute float _cover_jacket;
+        attribute float _cover_casual;
+        attribute float _cover_trousers;
+        attribute float _cover_shoe;
+        varying float vCovered;
+        uniform float uHideJacket;
+        uniform float uHideCasual;
+        uniform float uHideTrousers;
+        uniform float uHideShoe;
+        varying float vHeight;`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>
+        vCovered = max(max(max(_cover_jacket * uHideJacket, _cover_casual * uHideCasual), _cover_trousers * uHideTrousers), _cover_shoe * uHideShoe);`)
+      .replace("#include <project_vertex>", `#include <project_vertex>
+        vHeight = (modelMatrix * vec4(transformed, 1.0)).y;`)
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vCovered;\nvarying float vHeight;\nuniform float uShoeLine;")
+      .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
+        if (vCovered > 0.5) discard;`)
+      .replace("#include <color_fragment>", `#include <color_fragment>
+        if (!gl_FrontFacing && vHeight < uShoeLine) diffuseColor.rgb *= 0.08;`)
+  }
+  return material
+}
+
+// Wool suiting: the suit's own texture (cloth lightened to grey and marked in alpha by the build) dyed
+// the item's colour, a fine tiled weave for the surface, baked shading in the folds, a soft sheen, and a
+// dark lining on the inside. The shirt collar, cuffs, tie, buttons and shoes keep their own colours; with
+// clothOnly (a coat over a jacket) only the cloth is drawn, so the jacket's shirt and tie aren't doubled.
+function tintableFabric({ map, aoMap, normalMap, roughnessMap }, { clothOnly = false } = {}) {
+  const tint = { value: new THREE.Color("#2a3552") }
+  const material = new THREE.MeshPhysicalMaterial({
+    map, aoMap, aoMapIntensity: 1, normalMap, normalScale: new THREE.Vector2(0.35, 0.35), roughnessMap,
+    roughness: 0.92, sheen: 0.35, sheenRoughness: 0.6, side: THREE.DoubleSide
+  })
+  material.userData.tint = tint
+  const inflate = { value: 0 }
+  material.userData.inflate = inflate
+  // The AI's picture laid on (see FittingStage#wearPhoto).
+  const projection = projectionUniforms()
+  material.userData.projection = projection
+  material.onBeforeCompile = shader => {
+    shader.uniforms.fabricTint = tint
+    standOut(shader, inflate)
+    withProjection(shader, projection)
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 fabricTint;")
+      .replace("#include <map_fragment>", `
+        vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+        ${clothOnly ? DISCARD_SHIRT : ""}
+        vec3 cloth = sampledDiffuseColor.rgb * fabricTint * 1.35;
+        diffuseColor.rgb *= mix( sampledDiffuseColor.rgb, cloth, sampledDiffuseColor.a );
+        if ( !gl_FrontFacing ) diffuseColor.rgb *= 0.28;   // the lining
+        ${PROJECTION.fragmentApply}
+      `)
+  }
+  return material
+}
+
+// The fit map: the verdict colours where the texture marks cloth, and the real shirt, tie and buttons
+// everywhere else.
+function fitMapFabric({ map, aoMap }, { clothOnly = false } = {}) {
+  const material = new THREE.MeshStandardMaterial({ map, aoMap, vertexColors: true, roughness: 0.8, side: THREE.DoubleSide })
+  const inflate = { value: 0 }
+  material.userData.inflate = inflate
+  material.onBeforeCompile = shader => {
+    standOut(shader, inflate)
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <color_fragment>", "")
+      .replace("#include <map_fragment>", `
+        vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+        ${clothOnly ? DISCARD_SHIRT : ""}
+        diffuseColor.rgb *= mix( sampledDiffuseColor.rgb, vColor, sampledDiffuseColor.a );
+        if ( !gl_FrontFacing ) diffuseColor.rgb *= 0.35;
+      `)
+  }
+  return material
+}
+
+// Moves the cloth out along its normals by `inflate` metres, before skinning.
+function standOut(shader, inflate) {
+  shader.uniforms.uInflate = inflate
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", "#include <common>\nuniform float uInflate;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\ntransformed += normalize(objectNormal) * uInflate;")
+}
+
+// Shirt and tie pixels are light or coloured; cloth and buttons are dark and grey.
+const DISCARD_SHIRT = `
+  float shirtLight = dot( sampledDiffuseColor.rgb, vec3( 0.333 ) );
+  float shirtTint = max( max( sampledDiffuseColor.r, sampledDiffuseColor.g ), sampledDiffuseColor.b ) -
+                    min( min( sampledDiffuseColor.r, sampledDiffuseColor.g ), sampledDiffuseColor.b );
+  if ( sampledDiffuseColor.a < 0.5 && ( shirtLight > 0.3 || shirtTint > 0.1 ) ) discard;`
+
+// Colours a garment by the API's verdict for each part. Each vertex takes the colour of the part whose ease
+// shape key moves it most, relative to that key's strongest movement.
+function paintFitMap(mesh, checks, regions) {
+  const status = Object.fromEntries(checks.map(c => [c.part, c.status]))
+  const geometry = mesh.geometry
+  const count = geometry.attributes.position.count
+  const colors = new Float32Array(count * 3)
+  const parts = Object.entries(regions).map(([key, part]) => {
+    const deltas = geometry.morphAttributes.position[mesh.morphTargetDictionary[key]]
+    let peak = 0
+    for (let i = 0; deltas && i < count; i++) peak = Math.max(peak, Math.hypot(deltas.getX(i), deltas.getY(i), deltas.getZ(i)))
+    return { deltas, peak, color: new THREE.Color(STATUS_COLORS[status[part] ?? "unknown"]) }
+  })
+  const neutral = new THREE.Color("#e4e2dd")
+  const mixed = new THREE.Color()
+
+  for (let i = 0; i < count; i++) {
+    let total = 0
+    mixed.setRGB(0, 0, 0)
+    for (const { deltas, peak, color } of parts) {
+      if (!deltas || peak === 0) continue
+      const amount = Math.hypot(deltas.getX(i), deltas.getY(i), deltas.getZ(i)) / peak
+      if (amount < 0.06) continue   // smoothing blends a trace of the movement into neighbouring parts
+      const weight = amount ** 3
+      mixed.r += color.r * weight
+      mixed.g += color.g * weight
+      mixed.b += color.b * weight
+      total += weight
+    }
+    const out = total > 0 ? mixed.multiplyScalar(1 / total) : neutral
+    colors.set([out.r, out.g, out.b], i * 3)
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3))
+}
+
+// The backdrop: lightest just above the middle, darkening to the edges.
+// A still photo, with a faint film grain in its pixels (a render's perfectly smooth tones read as
+// computer-made): a PNG Blob of the canvas.
+// The canvas as just drawn, as a PNG Blob (copied at once: a 3D canvas is cleared after it's shown).
+function canvasBlob(source) {
+  return toBlob(copyCanvas(source))
+}
+
+function copyCanvas(source) {
+  const canvas = document.createElement("canvas")
+  canvas.width = source.width
+  canvas.height = source.height
+  canvas.getContext("2d").drawImage(source, 0, 0)
+  return canvas
+}
+
+// A canvas's pixels as they are now (an ImageData): what a PNG of it, opened again, would give.
+function pixelsNow(source) {
+  const canvas = document.createElement("canvas")
+  canvas.width = source.width
+  canvas.height = source.height
+  const context = canvas.getContext("2d", { willReadFrequently: true })
+  context.drawImage(source, 0, 0)
+  return context.getImageData(0, 0, canvas.width, canvas.height)
+}
+
+function toBlob(canvas) {
+  return new Promise((resolve, reject) => canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error("no picture"))), "image/png"))
+}
+
+// What a picture worn on the clothes (see FittingStage#wearPhoto) was painted for: the outfit's pieces, sizes
+// and colours. Anything else changing takes it off.
+function outfitSignature(items) {
+  return JSON.stringify(items.map(item => [item.kind, item.style ?? null, item.size, item.color, item.fabric ?? null, Boolean(item.zip), item.cut ?? null]))
+}
+
+// The canvas as just drawn, with grain (a 2D canvas, which keeps its pixels).
+function withGrain(source, amount = 3.2) {
+  const canvas = document.createElement("canvas")
+  canvas.width = source.width
+  canvas.height = source.height
+  const context = canvas.getContext("2d", { willReadFrequently: true })
+  context.drawImage(source, 0, 0)
+  const image = context.getImageData(0, 0, canvas.width, canvas.height), d = image.data
+  // The same grain each time (a fixed seed), as on one roll of film; brightness only, so colours stay true.
+  let seed = 7
+  const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
+  for (let i = 0; i < d.length; i += 4) {
+    const g = (random() + random() + random() - 1.5) * amount
+    d[i] = Math.min(255, Math.max(0, d[i] + g)); d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + g)); d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + g))
+  }
+  context.putImageData(image, 0, 0)
+  return canvas
+}
+
+// The contact shadow's shape: dark in an oval round the feet, fading out.
+function contactShadow() {
+  const size = 128, data = new Uint8Array(size * size * 4)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = (x / (size - 1)) * 2 - 1, v = (y / (size - 1)) * 2 - 1
+      const r = Math.hypot(u, v * 1.05)
+      const a = Math.max(0, 1 - r) ** 2.2
+      const i = 4 * (y * size + x)
+      data[i] = data[i + 1] = data[i + 2] = Math.round(a * 255); data[i + 3] = 255
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
+  texture.needsUpdate = true
+  return texture
+}
+
+// Khronos PBR Neutral, as three.js r170 applies it (tonemapping_pars_fragment), to linear RGB.
+function neutral([r, g, b], exposure) {
+  let c = [r * exposure, g * exposure, b * exposure]
+  const x = Math.min(...c)
+  const offset = x < 0.08 ? x - 6.25 * x * x : 0.04
+  c = c.map(v => v - offset)
+  const peak = Math.max(...c), start = 0.8 - 0.04
+  if (peak < start) return c
+  const d = 1 - start, top = 1 - (d * d) / (peak + d - start)
+  c = c.map(v => (v * top) / peak)
+  const k = 1 - 1 / (0.15 * (peak - top) + 1)
+  return c.map(v => v + (top - v) * k)
+}
+
+// The colour (CSS hex) that comes out as `css` once tone-mapped: the inverse of `neutral`, found by steps.
+export function untoned(css, exposure = 1) {
+  const want = new THREE.Color(css).toArray() // linear
+  let x = want.slice()
+  for (let i = 0; i < 40; i++) {
+    const got = neutral(x, exposure)
+    x = x.map((v, j) => Math.min(1, Math.max(0, v + (want[j] - got[j]))))
+  }
+  return `#${new THREE.Color().fromArray(x).getHexString()}`
+}
+
+function backdrop(tone = css => css) {
+  const canvas = document.createElement("canvas")
+  canvas.width = canvas.height = 512
+  const context = canvas.getContext("2d")
+  const gradient = context.createRadialGradient(256, 215, 0, 256, 215, 400)
+  gradient.addColorStop(0, tone(BACKDROP[0]))
+  gradient.addColorStop(0.55, tone(BACKDROP[1]))
+  gradient.addColorStop(1, tone(BACKDROP[2]))
+  context.fillStyle = gradient
+  context.fillRect(0, 0, 512, 512)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+// The daylight studio's backdrop: warm pale grey, a touch lighter high up, as a sweep is lit.
+function daylightBackdrop(tone = css => css) {
+  const canvas = document.createElement("canvas")
+  canvas.width = canvas.height = 512
+  const context = canvas.getContext("2d")
+  const gradient = context.createLinearGradient(0, 0, 0, 512)
+  gradient.addColorStop(0, tone("#e6e3de"))
+  gradient.addColorStop(1, tone("#d5d1ca"))
+  context.fillStyle = gradient
+  context.fillRect(0, 0, 512, 512)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+// The studio's backdrop: a warm off-white seamless sweep, lightest a little above the figure's middle, very
+// gently darker toward the floor and in the corners, with no line where the floor meets the wall. Painted
+// pixel by pixel (the corners' darkening is round, the floor's straight), each colour toned so it comes out
+// as painted (see backdropTone).
+export const STUDIO_SWEEP = { high: "#ebe8e2", middle: "#efece6", floor: "#e0dcd4", corner: 0.07 }
+function studioBackdrop(tone = css => css) {
+  const size = 256
+  const canvas = document.createElement("canvas")
+  canvas.width = canvas.height = size
+  const context = canvas.getContext("2d")
+  const image = context.createImageData(size, size)
+  const toned = new Map()
+  const hex = ([r, g, b]) => `#${[r, g, b].map(v => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, "0")).join("")}`
+  const rgb = css => [1, 3, 5].map(i => parseInt(css.slice(i, i + 2), 16))
+  const high = rgb(STUDIO_SWEEP.high), middle = rgb(STUDIO_SWEEP.middle), floor = rgb(STUDIO_SWEEP.floor)
+  for (let y = 0; y < size; y++) {
+    const v = y / (size - 1)
+    // Lightest at 38% down; the wall above a touch darker, the floor below more so.
+    const base = v < 0.38 ? mix(high, middle, v / 0.38) : mix(middle, floor, ((v - 0.38) / 0.62) ** 1.3)
+    for (let x = 0; x < size; x++) {
+      const u = x / (size - 1)
+      const r = Math.hypot((u - 0.5) * 2, (v - 0.45) * 2.1)
+      const dark = 1 - STUDIO_SWEEP.corner * easeInOut((r - 0.75) / 0.8)
+      const css = hex(base.map(c => c * dark))
+      let out = toned.get(css)
+      if (!out) { out = rgb(tone(css)); toned.set(css, out) }
+      const i = 4 * (y * size + x)
+      image.data[i] = out[0]; image.data[i + 1] = out[1]; image.data[i + 2] = out[2]; image.data[i + 3] = 255
+    }
+  }
+  context.putImageData(image, 0, 0)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+function mix(a, b, t) {
+  return a.map((v, i) => v + (b[i] - v) * t)
+}
+
+// A round soft-edged spot, as a texture.
+function glow() {
+  const canvas = document.createElement("canvas")
+  canvas.width = canvas.height = 128
+  const context = canvas.getContext("2d")
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64)
+  gradient.addColorStop(0, "rgba(255,255,255,0.55)")
+  gradient.addColorStop(0.6, "rgba(255,255,255,0.18)")
+  gradient.addColorStop(1, "rgba(255,255,255,0)")
+  context.fillStyle = gradient
+  context.fillRect(0, 0, 128, 128)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+// A hobo's horns as a picture: the photo over the box they stand in (print.js's bagHorns: shares of the
+// photo), see-through where the horns' mask is clear (its cells smoothed as they're drawn up to size).
+function hornTexture(image, horns) {
+  const W = image.naturalWidth || image.width, H = image.naturalHeight || image.height
+  const sx = horns.left * W, sy = horns.top * H, sw = Math.max(1, (horns.right - horns.left) * W), sh = Math.max(1, (horns.bottom - horns.top) * H)
+  const scale = Math.min(1, 512 / Math.max(sw, sh))
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.max(2, Math.round(sw * scale))
+  canvas.height = Math.max(2, Math.round(sh * scale))
+  const context = canvas.getContext("2d")
+  context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  const mask = document.createElement("canvas")
+  mask.width = horns.w
+  mask.height = horns.h
+  const cells = mask.getContext("2d").createImageData(horns.w, horns.h)
+  for (let i = 0; i < horns.w * horns.h; i++) cells.data[4 * i + 3] = horns.bits[i] === "1" ? 255 : 0
+  mask.getContext("2d").putImageData(cells, 0, 0)
+  context.globalCompositeOperation = "destination-in"
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = "high"
+  context.drawImage(mask, 0, 0, canvas.width, canvas.height)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  return texture
+}
+
+// Adds a shape key to a mesh: offsets (x, y, z per vertex) from its base shape, as glTF's are.
+function addShapeKey(mesh, name, offsets) {
+  const geometry = mesh.geometry
+  const count = geometry.attributes.position.count
+  if (offsets.length !== count * 3 || !geometry.morphAttributes.position || !geometry.morphTargetsRelative) return false
+  const attribute = new THREE.Float32BufferAttribute(offsets, 3)
+  attribute.name = name
+  geometry.morphAttributes.position.push(attribute)
+  if (geometry.morphAttributes.normal) geometry.morphAttributes.normal.push(new THREE.Float32BufferAttribute(new Float32Array(count * 3), 3))
+  mesh.morphTargetDictionary[name] = geometry.morphAttributes.position.length - 1
+  mesh.morphTargetInfluences.push(0)
+  return true
+}
+
+// The lit colour (sRGB, [r, g, b]) of a picture where a mask (the same size) is white, a pixel in from the
+// mask's edges, every other pixel. Null for too few.
+function clothMedian({ data, width, height }, mask, target = null) {
+  const on = (x, y) => x >= 0 && y >= 0 && x < width && y < height && mask.data[4 * (y * width + x)] > 128
+  const s = [[], [], []]
+  for (let y = 1; y < height - 1; y += 2) for (let x = 1; x < width - 1; x += 2) {
+    if (!on(x, y) || !on(x - 1, y) || !on(x + 1, y) || !on(x, y - 1) || !on(x, y + 1)) continue
+    const i = 4 * (y * width + x)
+    s[0].push(data[i]); s[1].push(data[i + 1]); s[2].push(data[i + 2])
+  }
+  if (s[0].length < 150) return null
+  // (A garment in two colours far apart: the block nearer the photo's cloth, see blockNear.)
+  // (Its colour where the light falls on it, without what's far from its middle colour: see litColour.)
+  return litColour(blockNear(s, target))
+}
+const METER_LAYER = 7
+const METER_MASK = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, toneMapped: false })
+

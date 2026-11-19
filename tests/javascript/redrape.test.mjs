@@ -1,0 +1,417 @@
+// Run with: node --test tests/javascript/*.test.mjs
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import "./support/lib.mjs"
+
+const { clothMask, layoutPhoto } = await import("lib/garments/redrape")
+
+// A store photo, 240 across by 300 down, on a light grey backdrop: a dark garment hanging with its body in
+// the middle, a sleeve either side (apart from the body below the shoulder, merged with it above), and, when
+// asked, a black hanger: a thin hook above and its shoulders over the garment's.
+function photo({ hanger = false, flat = false, greyRight = false } = {}) {
+  const w = 240, h = 300, data = new Uint8ClampedArray(4 * w * h)
+  const bg = [236, 236, 236], cloth = [60, 40, 30], hook = [12, 12, 12]
+  const put = (x, y, c) => data.set([...c, 255], 4 * (y * w + x))
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let c = bg
+    // The shoulders and body: from row 60 to the hem at 260, 70 to 170 across.
+    if (y >= 60 && y <= 260 && x >= 70 && x <= 170) c = cloth
+    // The sleeves: from the shoulder down to row 230, 40 to 60 and 180 to 200 across (a gap of 9 pixels from
+    // the body below row 90; joined to it above, at the shoulder).
+    if (y >= 60 && y <= 230 && ((x >= 40 && x <= 60) || (x >= 180 && x <= 200))) c = cloth
+    if (!flat && y >= 60 && y < 90 && x >= 40 && x <= 200) c = cloth
+    // A colour-blocked garment: its right part, body and sleeve, a light grey near the backdrop's shadow.
+    if (greyRight && c === cloth && x >= 120 && x <= 170) c = [196, 196, 198]
+    // The backdrop's soft shadow just under the hem: a little darker than the backdrop, not the cloth.
+    if (y > 260 && y <= 266 && x >= 70 && x <= 170) c = [214, 214, 214]
+    put(x, y, c)
+  }
+  if (hanger) {
+    for (let y = 30; y < 60; y++) for (let x = 117; x <= 123; x++) put(x, y, hook)   // the hook
+    for (let y = 60; y < 68; y++) for (let x = 50; x <= 190; x++) put(x, y, hook)   // the hanger's shoulders
+  }
+  return { data, w, h }
+}
+
+test("the cloth mask leaves out the backdrop's shadow under the hem", () => {
+  const { data, w, h } = photo()
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  assert.equal(found.box.top, 60)
+  assert.equal(found.box.bottom, 260, "the shadow rows below the hem aren't cloth")
+  assert.equal(found.box.left, 40)
+  assert.equal(found.box.right, 200)
+  assert.deepEqual(found.bg, [236, 236, 236])
+})
+
+test("a light panel beside dark cloth stays cloth", () => {
+  const { data, w, h } = photo({ greyRight: true })
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  assert.equal(found.box.right, 200)
+  for (const x of [125, 150, 165, 185, 195]) assert.equal(found.mask[150 * w + x], 1, `x ${x}`)
+  assert.equal(found.box.bottom, 260, "the shadow under the hem still isn't")
+})
+
+test("a white sleeve lighter than the backdrop is cloth, however narrow", () => {
+  // A navy body, its sleeves white leather, on a backdrop darkened round the garment (segment.js's
+  // outlineLight): a sleeve 20 pixels across is narrower than a light panel must be to tell it from a shadow,
+  // but no shadow is lighter than the backdrop it falls on.
+  const w = 240, h = 300, data = new Uint8ClampedArray(4 * w * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let c = [198, 198, 198]
+    if (y >= 60 && y <= 260 && x >= 70 && x <= 170) c = [10, 35, 66]
+    if (y >= 60 && y <= 230 && ((x >= 50 && x <= 69) || (x >= 171 && x <= 190))) c = [244, 244, 242]
+    data.set([...c, 255], 4 * (y * w + x))
+  }
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  assert.equal(found.box.left, 50)
+  assert.equal(found.box.right, 190)
+  for (const x of [52, 60, 180, 188]) assert.equal(found.mask[150 * w + x], 1, `x ${x}`)
+})
+
+test("a cream stripe right across a garment on a white backdrop is cloth, the shadow under the hem still not", () => {
+  const w = 240, h = 300, data = new Uint8ClampedArray(4 * w * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let c = [255, 255, 255]
+    // The body, in bands 20 rows deep: green, cream, brown, cream ...; a sleeve either side, apart from it.
+    const band = [[40, 119, 69], [246, 240, 222], [122, 88, 46], [246, 240, 222]][Math.floor((y - 60) / 20) % 4]
+    if (y >= 60 && y < 240 && x >= 70 && x <= 170) c = band
+    if (y >= 60 && y < 200 && ((x >= 40 && x <= 60) || (x >= 180 && x <= 200))) c = band
+    if (y >= 60 && y < 80 && x >= 40 && x <= 200) c = band
+    if (y >= 240 && y <= 246 && x >= 70 && x <= 170) c = [232, 232, 232]
+    data.set([...c, 255], 4 * (y * w + x))
+  }
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  for (const y of [85, 90, 130, 170, 210]) for (const x of [72, 120, 168]) assert.equal(found.mask[y * w + x], 1, `the cream stripe at ${x}, ${y}`)
+  assert.equal(found.mask[130 * w + 50], 1, "and on a sleeve")
+  assert.equal(found.box.bottom, 239, "the shadow under the hem isn't cloth")
+  // The gap between a sleeve and the body stays open (cloth above it at the shoulder, none below).
+  for (const y of [120, 180]) assert.equal(found.mask[y * w + 65], 0)
+})
+
+test("a hanger's hook and shoulders are cut off the top of the photo", () => {
+  const { data, w, h } = photo({ hanger: true })
+  const found = clothMask(data, w, h)
+  assert.ok(found)
+  assert.equal(found.box.top, 68, "the garment starts under the hanger")
+  for (let y = 30; y < 68; y++) for (let x = 0; x < w; x++) assert.equal(found.mask[y * w + x], 0)
+})
+
+test("the layout tells the body's run from each sleeve's, and carries the body's edges up into the shoulders", () => {
+  const { data, w, h } = photo()
+  const found = clothMask(data, w, h)
+  const layout = layoutPhoto({ mask: found.mask, box: found.box }, false)
+  // Below the shoulder: three runs, the wearer's right sleeve on the photo's left.
+  const y = 150 - found.box.top
+  assert.ok(Math.abs(layout.body[0][y] - 70) <= 1 && Math.abs(layout.body[1][y] - 170) <= 1)
+  assert.ok(Math.abs(layout.sides[0][0][y] - 40) <= 1 && Math.abs(layout.sides[0][1][y] - 60) <= 1)
+  assert.ok(Math.abs(layout.sides[2][0][y] - 180) <= 1 && Math.abs(layout.sides[2][1][y] - 200) <= 1)
+  // At the shoulder: one run, the sides merged; the body's edges extended from below split it.
+  const top = 70 - found.box.top
+  assert.ok(Number.isNaN(layout.sides[0][0][top]))
+  assert.ok(Math.abs(layout.extended[0][top] - 70) <= 2, `right edge extended: ${layout.extended[0][top]}`)
+  assert.ok(Math.abs(layout.extended[2][top] - 170) <= 2, `left edge extended: ${layout.extended[2][top]}`)
+})
+
+test("a photo of the back swaps the sides", () => {
+  const { data, w, h } = photo()
+  const found = clothMask(data, w, h)
+  const layout = layoutPhoto({ mask: found.mask, box: found.box }, true)
+  const y = 150 - found.box.top
+  assert.ok(Math.abs(layout.sides[0][0][y] - 180) <= 1, "the wearer's right sleeve is on the photo's right")
+  assert.ok(Math.abs(layout.sides[2][1][y] - 60) <= 1)
+})
+
+test("a sleeve laid along the body with no gap stays part of one run, with no body edge invented", () => {
+  const { data, w, h } = photo({ flat: true })
+  // Fill the gaps so the sleeves touch the body all the way down.
+  for (let y = 60; y <= 230; y++) for (let x = 61; x <= 69; x++) for (const xx of [x, 240 - x]) data.set([60, 40, 30, 255], 4 * (y * w + xx))
+  const found = clothMask(data, w, h)
+  const layout = layoutPhoto({ mask: found.mask, box: found.box }, false)
+  const y = 150 - found.box.top
+  assert.ok(Number.isNaN(layout.sides[0][0][y]))
+  assert.equal(layout.extended[0], null)
+  assert.equal(layout.extended[2], null)
+})
+
+test("the flat field takes the photographer's gradient out and keeps the weave as relief", async () => {
+  const { flatFieldImage } = await import("lib/garments/redrape")
+  // A 200 by 200 grey cloth filling the frame, lit from the top (brighter above), with a fine dark stripe
+  // every 10 pixels (its weave).
+  const w = 200, h = 200, data = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h).fill(1)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const light = 1.3 - 0.6 * (y / h)
+    const weave = x % 10 === 0 ? 0.7 : 1
+    const v = Math.round(Math.min(255, 140 * light * weave))
+    data.set([v, v, v, 255], 4 * (y * w + x))
+  }
+  const image = flatFieldImage({ data, width: w, height: h }, mask, { left: 0, right: w - 1, top: 0, bottom: h - 1, w, h })
+  assert.ok(image)
+  const at = (x, y) => data[4 * (y * w + x)]
+  // The top and bottom of the cloth come out at about the same brightness, where they differed by a half.
+  assert.ok(Math.abs(at(5, 20) - at(5, 180)) < 12, `${at(5, 20)} vs ${at(5, 180)}`)
+  // The weave's stripe is still darker than the cloth beside it, in colour and in the relief.
+  assert.ok(at(10, 100) < at(5, 100) - 15)
+  assert.ok(data[4 * (100 * w + 10) + 3] < data[4 * (100 * w + 5) + 3] - 10)
+})
+
+test("plain cloth loses the folds it was photographed in, and keeps its graphic and its weave", async () => {
+  const { flatFieldImage } = await import("lib/garments/redrape")
+  // A 300 by 300 blue cloth with broad diagonal folds (a third darker in their troughs, every 40 pixels), a
+  // fine weave line every 6, and a white logo block in the middle.
+  const w = 300, h = 300, data = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h).fill(1)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const fold = 1 - 0.33 * (0.5 + 0.5 * Math.sin(((x + y) / 40) * Math.PI))
+    const weave = y % 6 === 0 ? 0.85 : 1
+    const logo = x >= 130 && x < 170 && y >= 130 && y < 160
+    data.set(logo ? [245, 245, 245, 255] : [Math.round(40 * fold * weave), Math.round(70 * fold * weave), Math.round(160 * fold * weave), 255], 4 * (y * w + x))
+  }
+  flatFieldImage({ data, width: w, height: h }, mask, { left: 0, right: w - 1, top: 0, bottom: h - 1, w, h })
+  const blue = (x, y) => data[4 * (y * w + x) + 2]
+  // Along a row (not a weave line), crest and trough come out within a few levels, where they were a third apart.
+  const row = Array.from({ length: 80 }, (_, k) => blue(20 + k, 31))
+  assert.ok(Math.max(...row) - Math.min(...row) < 20, `${Math.min(...row)}..${Math.max(...row)}`)
+  // The weave line is still darker than the rows beside it; the logo is still white.
+  assert.ok(blue(60, 30) < blue(60, 31) - 8)
+  assert.ok(data[4 * (145 * w + 150)] > 150)
+})
+
+test("an affine map fitted by least squares recovers a shear and two scales", async () => {
+  const { affineFit } = await import("lib/garments/redrape")
+  const src = [[0, 0], [10, 0], [10, 20], [0, 20], [5, 7], [3, 15]]
+  const f = ([x, y]) => [50 + 2 * x + 0.5 * y, 80 - 0.3 * x + 3 * y]
+  const t = affineFit(src, src.map(f))
+  for (const p of src) { const [x, y] = t(p), [X, Y] = f(p); assert.ok(Math.hypot(x - X, y - Y) < 1e-6) }
+  assert.equal(affineFit([[0, 0], [1, 1], [2, 2]], [[0, 0], [1, 1], [2, 2]]), null)
+})
+
+test("a similarity fitted by least squares recovers a move, turn and scale", async () => {
+  const { similarity } = await import("lib/garments/redrape")
+  const angle = 0.3, scale = 2.5, src = [[0, 0], [10, 0], [10, 5], [0, 5], [5, 2]]
+  const dst = src.map(([x, y]) => [100 + scale * (Math.cos(angle) * x - Math.sin(angle) * y), 40 + scale * (Math.sin(angle) * x + Math.cos(angle) * y)])
+  const t = similarity(src, dst)
+  for (let k = 0; k < src.length; k++) { const [x, y] = t(src[k]); assert.ok(Math.hypot(x - dst[k][0], y - dst[k][1]) < 1e-6) }
+})
+
+// A photo as the re-drape reads it, from raw pixels, with no browser: its canvas only gives its pixels back.
+function photoOf({ data, w, h }, extra = {}) {
+  const found = clothMask(data, w, h)
+  const canvas = { width: w, height: h, getContext: () => ({ getImageData: () => ({ data }) }) }
+  return { canvas, mask: found.mask, box: { ...found.box, w, h }, cloth: [60, 40, 30], worn: false, ...extra }
+}
+
+test("the plainest patch of cloth is found where the cloth is one colour", async () => {
+  const { plainPatch } = await import("lib/garments/redrape")
+  const shot = photo()
+  // A navy letter across the middle of the body.
+  for (let y = 120; y < 170; y++) for (let x = 90; x < 150; x++) shot.data.set([20, 30, 90, 255], 4 * (y * shot.w + x))
+  const patch = plainPatch(photoOf(shot), [60, 40, 30])
+  assert.ok(patch)
+  const inLetter = patch.x + patch.w > 90 && patch.x < 150 && patch.y + patch.h > 120 && patch.y < 170
+  assert.ok(!inLetter, "not on the lettering")
+  assert.equal(plainPatch(photoOf(shot), [250, 250, 0]), null, "no patch in a colour the photo hasn't got")
+})
+
+test("a hood and a sleeve that took the body's lettering are laid on plain cloth; the front keeps its photo", async () => {
+  const { trustPieces } = await import("lib/garments/redrape")
+  const shot = photo()
+  // Lettering across the chest, running onto the sleeves where they lie along the body.
+  for (let y = 110; y < 140; y++) for (let x = 40; x <= 200; x++) if (shot.data[4 * (y * shot.w + x)] === 60) shot.data.set([20, 30, 90, 255], 4 * (y * shot.w + x))
+  const front = photoOf(shot)
+  // Four pieces of a few points each: the front on the lettering and the cloth, a sleeve all on the lettering,
+  // a hood on the cloth, a back (no photo of its own).
+  const cloth = { panels: ["front", "sleeve_L", "hood_L", "back"], points: [], panel: [] }
+  const uv = []
+  const at = (p, x, y, px, py) => { cloth.points.push([px, py]); cloth.panel.push(p); uv.push(x / shot.w, 1 - y / shot.h, 1) }
+  for (let k = 0; k < 10; k++) { at(0, 100 + k, k < 2 ? 120 : 80, k, 0); at(1, 50, 120 + k, 0, k); at(2, 120, 70 + k, k, k); at(3, 100 + k, 80, k, 0) }
+  const out = trustPieces({ cloth }, Float32Array.from(uv), { front, back: null })
+  assert.deepEqual(out.plain.sort(), ["back", "hood_L", "sleeve_L"])
+  assert.equal(out.far.front, 0.2)
+  assert.equal(out.allOver, false)
+})
+
+test("a print all over keeps the photo on the sleeves and the back", async () => {
+  const { trustPieces } = await import("lib/garments/redrape")
+  const shot = photo()
+  // A stripe all over: two of every three 10-pixel bands of the cloth light.
+  for (let y = 60; y <= 260; y++) for (let x = 40; x <= 200; x++) if (shot.data[4 * (y * shot.w + x)] === 60 && Math.floor(x / 10) % 3) shot.data.set([200, 200, 210, 255], 4 * (y * shot.w + x))
+  const front = photoOf(shot, { cloth: [60, 40, 30] })
+  const cloth = { panels: ["front", "sleeve_L", "back"], points: [], panel: [] }
+  const uv = []
+  const at = (p, x, y) => { cloth.points.push([x, y]); cloth.panel.push(p); uv.push(x / shot.w, 1 - y / shot.h, 1) }
+  for (let k = 0; k < 20; k++) { at(0, 90 + 3 * k, 150); at(1, 41 + k, 150); at(2, 90 + 3 * k, 160) }
+  const out = trustPieces({ cloth }, Float32Array.from(uv), { front, back: null })
+  assert.equal(out.allOver, true)
+  assert.deepEqual(out.plain, [])
+})
+
+test("a print known to be all over keeps the photo on the sleeves, though its colours look half the cloth's", async () => {
+  const { trustPieces } = await import("lib/garments/redrape")
+  const shot = photo()
+  // A camo in two colours, one of them the cloth's: blotches of the other over a third of the garment.
+  for (let y = 60; y <= 260; y++) for (let x = 40; x <= 200; x++) if (shot.data[4 * (y * shot.w + x)] === 60 && (Math.floor(x / 14) + Math.floor(y / 14)) % 3 === 0) shot.data.set([40, 70, 200, 255], 4 * (y * shot.w + x))
+  const front = photoOf(shot, { cloth: [60, 40, 30] })
+  const cloth = { panels: ["front", "sleeve_L", "sleeve_R"], points: [], panel: [] }
+  const uv = []
+  const at = (p, x, y) => { cloth.points.push([x, y]); cloth.panel.push(p); uv.push(x / shot.w, 1 - y / shot.h, 1) }
+  for (let k = 0; k < 42; k++) { at(0, 90 + k, 100 + k); at(1, 42 + (k % 14), 100 + k); at(2, 186 + (k % 14), 100 + k) }
+  const guessed = trustPieces({ cloth }, Float32Array.from(uv), { front, back: null })
+  assert.equal(guessed.allOver, false, "by the cloth's colour alone it isn't")
+  assert.ok(guessed.plain.includes("sleeve_L"), "so its sleeves were laid plain")
+  const known = trustPieces({ cloth }, Float32Array.from(uv), { front, back: null }, { allOver: true })
+  assert.equal(known.allOver, true)
+  assert.deepEqual(known.plain, [])
+})
+
+test("a hood standing up above the shoulders is kept, not cut off as a hanger's hook", () => {
+  const { data, w, h } = photo()
+  // A hood 50 wide from row 20 to the shoulders at row 60, in the cloth's colour.
+  for (let y = 20; y < 60; y++) for (let x = 95; x <= 145; x++) data.set([60, 40, 30, 255], 4 * (y * w + x))
+  const found = clothMask(data, w, h)
+  assert.equal(found.box.top, 20)
+})
+
+// A grey cloth square on a light backdrop with a light rim inside its outline (rim: how many pixels; the
+// backdrop blended in, from half of it at the outline down to a tenth), as a canvas context would hold it.
+function rimmed(rim) {
+  const w = 800, h = 800, data = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h)
+  const bg = [235, 235, 235], cloth = [106, 102, 97]
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, inside = x >= 200 && x < 600 && y >= 200 && y < 600
+    const depth = Math.min(x - 200, 599 - x, y - 200, 599 - y) + 1   // 1 on the outline
+    const t = inside && depth <= rim ? 0.5 - 0.4 * (depth - 1) / Math.max(1, rim - 1) : 0
+    const c = inside ? cloth.map((v, k) => Math.round(v + (bg[k] - v) * t)) : bg
+    data.set([...c, 255], 4 * i)
+    mask[i] = inside ? 1 : 0
+  }
+  return { ctx: { getImageData: () => ({ data }), putImageData: () => {} }, data, mask, w, h, bg }
+}
+
+test("the light rim inside a photo's outline takes the cloth's colour from just inside it", async () => {
+  const { cleanRim } = await import("lib/garments/redrape")
+  const { ctx, data, mask, w, h, bg } = rimmed(6)
+  assert.equal(cleanRim(ctx, mask, w, h, bg), 6)
+  // The outline's pixel now the cloth's, and the cloth deeper in untouched.
+  const at = (x, y) => Array.from(data.slice(4 * (y * w + x), 4 * (y * w + x) + 3))
+  assert.deepEqual(at(200, 400), [106, 102, 97])
+  assert.deepEqual(at(400, 400), [106, 102, 97])
+  // The backdrop outside isn't touched.
+  assert.deepEqual(at(150, 400), [235, 235, 235])
+  // No rim, nothing to clean.
+  const plain = rimmed(0)
+  assert.equal(cleanRim(plain.ctx, plain.mask, plain.w, plain.h, plain.bg), 0)
+})
+
+// A made-up hoodie front: blotchy two-tone cloth on a light backdrop, two cream cords hanging from below the
+// hood to halfway down, and a dark zip all the way down the middle.
+function hoodieFront({ zip = [30, 30, 30], bridge = false } = {}) {
+  const w = 400, h = 400, data = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, inside = x >= 80 && x < 320 && y >= 40 && y < 380
+    let c = [235, 235, 235]
+    if (inside) {
+      c = ((x >> 4) + (y >> 4)) % 2 ? [120, 100, 80] : [90, 75, 60]
+      if (Math.abs(x - 200) <= 1) c = zip   // the zip
+      if (bridge && y >= 100 && y < 103 && x >= 185 && x <= 215) c = [225, 215, 195]   // the cords' eyelets, against the zip
+      if (y >= 100 && y < 210 && (Math.abs(x - 185) <= 2 || Math.abs(x - 215) <= 2)) c = [225, 215, 195]   // the cords
+    }
+    data.set([...c, 255], 4 * i)
+    mask[i] = inside ? 1 : 0
+  }
+  return { ctx: { getImageData: () => ({ data }), putImageData: () => {} }, data, mask, w, h, box: { left: 80, right: 319, top: 40, bottom: 379, w, h } }
+}
+
+test("a hood's cords are painted out of the photo of the front with the cloth beside them; the zip isn't", async () => {
+  const { paintCords } = await import("lib/garments/redrape")
+  const { ctx, data, mask, w, h, box } = hoodieFront()
+  assert.equal(paintCords(ctx, mask, w, h, box), 2)
+  const lum = (x, y) => { const i = 4 * (y * w + x); return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] }
+  for (const x of [185, 215]) for (const y of [110, 150, 200]) assert.ok(lum(x, y) < 130, `cord left at ${x},${y}: ${lum(x, y)}`)
+  assert.ok(lum(200, 150) < 40 && lum(200, 300) < 40, "the zip stays")
+})
+
+test("a zip hoodie's cords are painted out though its zip is as light as they are and they meet it at the neck", async () => {
+  const { paintCords } = await import("lib/garments/redrape")
+  const { ctx, data, mask, w, h, box } = hoodieFront({ zip: [220, 220, 215], bridge: true })
+  assert.equal(paintCords(ctx, mask, w, h, box), 2)
+  const lum = (x, y) => { const i = 4 * (y * w + x); return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] }
+  for (const x of [185, 215]) for (const y of [120, 160, 200]) assert.ok(lum(x, y) < 130, `cord left at ${x},${y}: ${lum(x, y)}`)
+  assert.ok(lum(200, 160) > 200 && lum(200, 300) > 200, "the zip stays")
+})
+
+test("a hooded top's shoulders: where the width last leaps out, though its hood is as wide as most of its chest", async () => {
+  const { shoulderRow } = await import("lib/garments/redrape")
+  // A hood 60 wide at its crown, then 110 (spread out, 0.6 of the chest), then shoulders and body 180–260.
+  const widths = []
+  for (let y = 0; y < 400; y++) widths.push(y < 55 ? 20 + y : y < 112 ? 110 : y < 180 ? 175 + (y - 112) * 0.5 : 260)
+  const row = shoulderRow(widths, 400)
+  assert.ok(row >= 110 && row <= 118, `shoulders at ${row}`)
+  // Sloping shoulders below a narrow hood's neck: where they leap out from it.
+  const sloped = []
+  for (let y = 0; y < 400; y++) sloped.push(y < 40 ? 60 + y : y < 60 ? 100 - (y - 40) : y < 100 ? 80 + (y - 60) * 4 : 260)
+  const r2 = shoulderRow(sloped, 400)
+  assert.ok(r2 >= 60 && r2 <= 85, `sloped shoulders at ${r2}`)
+})
+
+test("a shoe photographed tilted on its toe isn't read as a side; a level one and a heel are", async () => {
+  const { tilted } = await import("lib/garments/print")
+  const w = 200, h = 120
+  const draw = under => {
+    const m = new Uint8Array(w * h)
+    for (let x = 20; x <= 180; x++) { const b = Math.round(under(x)); for (let y = 30; y <= b; y++) m[y * w + x] = 1 }
+    return m
+  }
+  assert.equal(tilted(draw(x => 60 + (x - 20) * 0.3), w, 20, 180, 30, 108), true, "tilted")
+  assert.equal(tilted(draw(() => 80), w, 20, 180, 30, 80), false, "level")
+  // A heel: the heel's end and the ball on the floor, the arch up between.
+  assert.equal(tilted(draw(x => x < 50 ? 90 : x < 120 ? 90 - Math.sin((x - 50) / 70 * Math.PI) * 25 : 90), w, 20, 180, 30, 90), false, "heel")
+  // A stiletto: its sole a straight slope from the heel down to the ball, and a thin stem to the floor.
+  assert.equal(tilted(draw(x => x < 24 ? 108 : 60 + (x - 20) * 0.3), w, 20, 180, 30, 108), false, "stiletto")
+})
+
+test("grey sleeves lying against a navy body are cut from it along the colour's edge; a diagonal half isn't", async () => {
+  const { splitBlocks } = await import("lib/garments/redrape")
+  const w = 200, h = 240
+  const make = colourAt => {
+    const d = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h)
+    for (let y = 20; y < 220; y++) for (let x = 20; x < 180; x++) { mask[y * w + x] = 1; d.set([...colourAt(x, y), 255], 4 * (y * w + x)) }
+    return { d, mask, box: { left: 20, right: 179, top: 20, bottom: 219 } }
+  }
+  const navy = [36, 37, 48], grey = [200, 200, 200]
+  // The body from 55 to 145 across; the sleeves either side of it below the shoulders (row 70), touching.
+  const layered = make((x, y) => (y > 70 && (x < 55 || x > 145) ? grey : navy))
+  assert.ok(splitBlocks(layered.d, layered.mask, w, h, layered.box) > 100)
+  assert.equal(layered.mask[120 * w + 54], 0, "cut at the body's left edge")
+  assert.equal(layered.mask[120 * w + 100], 1)
+  // One half grey along a diagonal: no upright edge.
+  const diagonal = make((x, y) => (x > 40 + (y - 20) * 0.6 ? grey : navy))
+  assert.equal(splitBlocks(diagonal.d, diagonal.mask, w, h, diagonal.box), 0)
+})
+
+test("a strip of a hanging sleeve left on the body's side comes off the mask; an edge at the backdrop or on the body's own colour doesn't", async () => {
+  const { trimSleeveEdge } = await import("lib/garments/redrape")
+  // An olive body (columns 100 to 299) with a blue sleeve against its left side (60 to 99, its last 6 columns
+  // in the body's shadow); the mask cut straight down at column 90, 10 columns into the sleeve. Its right side
+  // ends at the backdrop.
+  const w = 400, h = 200, d = new Uint8ClampedArray(4 * w * h), mask = new Uint8Array(w * h)
+  const bg = [235, 235, 235], olive = [42, 40, 30], blue = [142, 190, 198], shade = [99, 122, 127]
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const c = x < 60 || x >= 300 ? bg : x < 94 ? blue : x < 100 ? shade : olive
+    d.set([...c, 255], 4 * (y * w + x))
+    if (x >= 90 && x < 300) mask[y * w + x] = 1
+  }
+  const box = { left: 90, right: 299, top: 0, bottom: h - 1, w, h }
+  assert.equal(trimSleeveEdge(d, mask, w, h, box, bg), h)
+  for (const y of [0, 100, 199]) {
+    assert.equal(mask[y * w + 99], 0)
+    assert.equal(mask[y * w + 100], 1)
+    assert.equal(mask[y * w + 299], 1)
+  }
+  // The body's own edge at the backdrop on both sides: nothing to take back.
+  const whole = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) for (let x = 60; x < 300; x++) whole[y * w + x] = 1
+  assert.equal(trimSleeveEdge(d, whole, w, h, { ...box, left: 60 }, bg), 0)
+})

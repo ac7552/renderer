@@ -1,0 +1,16 @@
+/* The renderer's own page: the fitting room is the whole page (it doesn't close back to a bar), with the light
+   switch where its Close button was. */
+.dock-light { display: inline-flex; gap: 2px; margin-left: auto; }
+.dock-light button {
+  font: 500 12px/1 var(--mono, ui-monospace, monospace);
+  padding: 6px 8px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.dock-light button[aria-pressed="true"] { opacity: 1; }
+/* Nothing is behind the fitting room here, so it reaches the top of the window. */
+.outlet .dock.is-open { top: 0; }

@@ -1,0 +1,10 @@
+{
+  "name": "renderer-page",
+  "private": true,
+  "description": "The page's modules' tests: node --test, no packages to install.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/javascript/*.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

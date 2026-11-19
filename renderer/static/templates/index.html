@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>The fitting room · Renderer</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <!-- Before anything is drawn: the light (lib/light.js; the same sum as its nightAt), so a page at night opens in
+         night's colours. -->
+    <script>
+      (function () { var root = document.documentElement, held = null, hour = new Date().getHours()
+        try { held = localStorage.getItem("fitroom:light") } catch (e) {}
+        root.classList.add("js", "opening-seen")
+        if (held === "night" || (held !== "day" && (hour < 7 || hour >= 18))) root.classList.add("is-night") })()
+    </script>
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+    <link rel="icon" href="/icon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="/icon.png" type="image/png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="/css/application.css">
+    <link rel="stylesheet" href="/css/bar.css">
+    <link rel="stylesheet" href="/css/outlet.css">
+    <link rel="stylesheet" href="/css/tones.css">
+    <link rel="stylesheet" href="/css/walk.css">
+    <link rel="stylesheet" href="/css/renderer.css">
+    <script type="importmap">{{importmap}}</script>
+    <script type="module">import "application"</script>
+  </head>
+
+  <body>
+    <main class="outlet outlet--fit" data-controller="fitting-room" data-fitting-room-fits-url-value="/api/v1/fits"
+          data-fitting-room-import-url-value="/api/v1/garment_imports" data-fitting-room-garment-value="{{garment}}"
+          data-fitting-room-dress-value="{{dress}}" data-fitting-room-look-value="[]" data-fitting-room-wear-look-value="false">
+
+      <!-- The dressing bar, opened into the whole fitting room: the mannequin, a box to paste a store's link into,
+           what it's wearing and in which size, the other ways to add clothes, and your shape
+           (fitting_room_controller.js). -->
+      <section class="fitting-room dock is-open" id="fit" aria-label="Your fit: the mannequin and what it's wearing" data-fitting-room-target="dock">
+        <header class="dock-head">
+          <span class="dock-names"><span class="dock-title">Your fit</span></span>
+          <!-- The light (lib/light.js): the page by your clock, or held to day or night. -->
+        <div class="light-switch dock-light" role="group" aria-label="The light" data-controller="light" hidden>
+          <button type="button" data-light-target="mode" data-action="light#hold" data-light-mode-param="auto" aria-pressed="true">Your clock</button>
+          <button type="button" data-light-target="mode" data-action="light#hold" data-light-mode-param="day" aria-pressed="false">Day</button>
+          <button type="button" data-light-target="mode" data-action="light#hold" data-light-mode-param="night" aria-pressed="false">Night</button>
+        </div>
+        </header>
+        <!-- A store's link, pasted straight into the bar: the piece goes on the mannequin (importBarLink). -->
+        <form class="bar-field" data-action="submit->fitting-room#importBarLink">
+          <label class="visually-hidden" for="bar-link">A link from a store</label>
+          <div class="link-row">
+            <input id="bar-link" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Paste a link from a store"
+                   data-fitting-room-target="barLink">
+            <button type="submit" class="button button--dark" data-fitting-room-target="barAdd">Add</button>
+          </div>
+        </form>
+        <div class="fit-panel fit-panel--inputs">
+          <section class="fit-step" aria-labelledby="step-clothes">
+            <div class="step-head">
+              <h2 id="step-clothes">wearing</h2>
+            </div>
+            <div class="outfit" data-fitting-room-target="outfitList"></div>
+
+            <form class="link-form" data-action="submit->fitting-room#importLink">
+              <label class="field-label" for="product-link">Paste a link from a store</label>
+              <div class="link-row">
+                <input id="product-link" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+                       placeholder="https://store.com/t-shirt" data-fitting-room-target="link">
+                <button type="submit" class="button button--dark" data-fitting-room-target="importButton">Add</button>
+              </div>
+              <p class="link-samples">
+                No link? Try one of ours:
+                <button type="button" class="text-button" data-action="fitting-room#useSample" data-path="/samples/grey-t-shirt.html">T-shirt</button> ·
+                <button type="button" class="text-button" data-action="fitting-room#useDress">dress</button> ·
+                <button type="button" class="text-button" data-action="fitting-room#useSample" data-path="/samples/navy-suit-jacket.html">suit jacket</button> ·
+                <button type="button" class="text-button" data-action="fitting-room#useSample" data-path="/samples/grey-trousers.html">pants</button>
+              </p>
+            </form>
+            <p class="import-error" role="alert" data-fitting-room-target="importError" hidden></p>
+            <p class="tip">You can wear one of each: a top, a jacket, a coat and pants. Adding a new one swaps out the old one.</p>
+
+            <details class="more-ways">
+              <summary>Other ways to add clothes</summary>
+              <div class="more-way more-way--first">
+                <p class="more-way-title">Add photos of it</p>
+                <p class="tip">Pick or drop up to six photos of one garment: its front, flat or on a hanger on a plain background,
+                  and its back, a close-up of the cloth or its size tag if you have them. The photos stay on your device.</p>
+                <div class="tray" data-fitting-room-target="tray"
+                     data-action="dragover->fitting-room#dragTray dragleave->fitting-room#leaveTray drop->fitting-room#dropTray"></div>
+                <div class="fit-actions fit-actions--tight">
+                  <button type="button" class="button button--dark" data-fitting-room-target="trayAdd" data-action="fitting-room#importPhoto" hidden>Add it in the usual sizes</button>
+                </div>
+              </div>
+
+              <div class="more-way size-editor">
+                <p class="more-way-title">Or give its sizes</p>
+                <p class="tip">Copy the numbers from the store, one size at a time, or lay the clothes flat and measure them.</p>
+                <div class="segmented segmented--big editor-kinds" role="radiogroup" aria-label="What is it?">
+                  <label><input type="radio" name="own-kind" value="top" checked autocomplete="off" data-fitting-room-target="ownKind" data-action="fitting-room#changeItemType"><span>Top</span></label>
+                  <label><input type="radio" name="own-kind" value="jacket" autocomplete="off" data-fitting-room-target="ownKind" data-action="fitting-room#changeItemType"><span>Jacket</span></label>
+                  <label><input type="radio" name="own-kind" value="coat" autocomplete="off" data-fitting-room-target="ownKind" data-action="fitting-room#changeItemType"><span>Coat</span></label>
+                  <label><input type="radio" name="own-kind" value="trousers" autocomplete="off" data-fitting-room-target="ownKind" data-action="fitting-room#changeItemType"><span>Pants</span></label>
+                </div>
+                <div class="editor-how">
+                  <span class="field-label">Measured</span>
+                  <div class="segmented" role="radiogroup" aria-label="How it was measured">
+                    <label><input type="radio" name="own-flat" value="round" checked autocomplete="off" data-fitting-room-target="measuredFlat" data-action="fitting-room#changeMeasuredFlat"><span>All the way round</span></label>
+                    <label><input type="radio" name="own-flat" value="flat" autocomplete="off" data-fitting-room-target="measuredFlat" data-action="fitting-room#changeMeasuredFlat"><span>Across, flat</span></label>
+                  </div>
+                </div>
+                <div class="size-tabs" role="tablist" aria-label="Sizes" data-fitting-room-target="sizeTabs"></div>
+                <div class="editor">
+                  <div class="editor-fields" data-fitting-room-target="ownSizes"></div>
+                  <div class="editor-diagram" data-fitting-room-target="ownDiagram"></div>
+                </div>
+                <details class="paste-chart">
+                  <summary>Paste a chart instead</summary>
+                  <p class="tip">Copy the size table from the store's page and paste it here. It fills the sizes above, for you to check.
+                    If the store only shows a size, like M, type just that.</p>
+                  <textarea rows="4" autocomplete="off" spellcheck="false" data-fitting-room-target="chartText" data-action="paste->fitting-room#pasteChart"
+                            aria-label="Size chart" placeholder="Size&#9;Chest&#9;Length&#10;M&#9;40&#9;28"></textarea>
+                  <button type="button" class="button" data-action="fitting-room#importText">Fill the sizes</button>
+                </details>
+                <p class="tip paste-note" role="status" data-fitting-room-target="pasteNote" hidden></p>
+                <p class="tip" data-fitting-room-target="trayNote" hidden>The photos above go on it too.</p>
+                <p class="import-error" role="alert" data-fitting-room-target="editorError" hidden></p>
+                <div class="fit-actions fit-actions--tight">
+                  <button type="button" class="button button--dark" data-action="fitting-room#useOwnItem">Add to outfit</button>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="fit-step" aria-labelledby="step-body">
+            <div class="step-head">
+              <h2 id="step-body">your shape</h2>
+            </div>
+
+            <fieldset class="field fit-choice">
+              <legend class="field-label">How do you like clothes to fit?</legend>
+              <div class="segmented segmented--big" role="radiogroup">
+                <label><input type="radio" name="fit" value="slim" autocomplete="off" data-fitting-room-target="cut" data-action="fitting-room#update"><span>Snug</span></label>
+                <label><input type="radio" name="fit" value="regular" checked autocomplete="off" data-fitting-room-target="cut" data-action="fitting-room#update"><span>Regular</span></label>
+                <label><input type="radio" name="fit" value="classic" autocomplete="off" data-fitting-room-target="cut" data-action="fitting-room#update"><span>Loose</span></label>
+              </div>
+            </fieldset>
+
+            <details class="more-ways shape-numbers" open data-fitting-room-target="numbers">
+              <summary>Your measurements, to check or type</summary>
+              <div class="more-way more-way--first">
+                <div class="shape-units">
+                  <span class="field-label">Units</span>
+                  <div class="segmented" role="radiogroup" aria-label="Units">
+                    <label><input type="radio" name="unit" autocomplete="off" value="in" checked data-fitting-room-target="unit" data-action="fitting-room#changeUnit"><span>inches</span></label>
+                    <label><input type="radio" name="unit" autocomplete="off" value="cm" data-fitting-room-target="unit" data-action="fitting-room#changeUnit"><span>cm</span></label>
+                  </div>
+                </div>
+                <p class="tip tip--lead">Use a soft tape measure. It's easier if someone helps you. Slide to a number, or type it in.</p>
+                <div class="field field--compact">
+                  <span class="field-label">Your body</span>
+                  <div class="segmented segmented--big" role="radiogroup" aria-label="Your body">
+                    <label><input type="radio" name="body-type" value="men" checked autocomplete="off" data-fitting-room-target="bodyType" data-action="fitting-room#changeBodyType"><span>Man</span></label>
+                    <label><input type="radio" name="body-type" value="women" autocomplete="off" data-fitting-room-target="bodyType" data-action="fitting-room#changeBodyType"><span>Woman</span></label>
+                  </div>
+                </div>
+{{body_parts}}
+                <div class="fit-actions">
+                  <button type="button" class="button" data-action="fitting-room#fillExample">Use example numbers</button>
+                  <button type="button" class="button button--quiet" data-action="fitting-room#clear">Clear</button>
+                </div>
+              </div>
+            </details>
+          </section>
+        </div>
+
+        <div class="fit-panel fit-panel--results fit-panel--empty">
+          <h2 class="visually-hidden">The mannequin, and how each size fits</h2>
+          <div class="stage stage--studio" data-fitting-room-target="stage">
+            <canvas data-fitting-room-target="canvas" aria-label="A 3D body shaped like you, wearing the clothes in the size you pick. Drag to turn it."></canvas>
+            <!-- Over the picture: what's shown and how it stands, top left; the room it stands in, top right; along
+                 the bottom, the mannequin itself (its body and colour). -->
+            <div class="stage-top">
+              <div class="stage-switches" data-fitting-room-target="switches">
+                <div class="segmented segmented--dark" role="radiogroup" aria-label="What to show">
+                  <label><input type="radio" name="view" value="mannequin" checked autocomplete="off" data-action="fitting-room#changeView"><span>On the body</span></label>
+                  <label><input type="radio" name="view" value="ghost" autocomplete="off" data-action="fitting-room#changeView"><span>Clothes only</span></label>
+                  <label><input type="radio" name="view" value="fit" autocomplete="off" data-action="fitting-room#changeView"><span>Fit colors</span></label>
+                </div>
+                <div class="segmented segmented--dark" role="radiogroup" aria-label="Pose">
+                  <label><input type="radio" name="pose" value="standing" checked autocomplete="off" data-action="fitting-room#changePose"><span>Standing</span></label>
+                  <label><input type="radio" name="pose" value="relaxed" autocomplete="off" data-action="fitting-room#changePose"><span>Relaxed</span></label>
+                  <label><input type="radio" name="pose" value="walking" autocomplete="off" data-action="fitting-room#changePose"><span>Walking</span></label>
+                  <label><input type="radio" name="pose" value="arms_out" autocomplete="off" data-action="fitting-room#changePose"><span>Arms out</span></label>
+                </div>
+                <div class="segmented segmented--dark" role="radiogroup" aria-label="Top" data-fitting-room-target="tuck" hidden>
+                  <label><input type="radio" name="tuck" value="out" checked autocomplete="off" data-action="fitting-room#changeTuck"><span>Not tucked</span></label>
+                  <label><input type="radio" name="tuck" value="in" autocomplete="off" data-action="fitting-room#changeTuck"><span>Tucked in</span></label>
+                </div>
+                <!-- How a bag is carried (on the shoulder or in the hand...): filled in for the bag worn, showCarry. -->
+                <div class="segmented segmented--dark" role="radiogroup" aria-label="Bag" data-fitting-room-target="carry" hidden></div>
+              </div>
+              <div class="segmented segmented--dark stage-scene" role="radiogroup" aria-label="Studio">
+                <label><input type="radio" name="scene" value="studio" checked autocomplete="off" data-fitting-room-target="scene" data-action="fitting-room#changeScene"><span>Studio</span></label>
+                <label><input type="radio" name="scene" value="daylight" autocomplete="off" data-fitting-room-target="scene" data-action="fitting-room#changeScene"><span>Daylight</span></label>
+                <label><input type="radio" name="scene" value="dark" autocomplete="off" data-fitting-room-target="scene" data-action="fitting-room#changeScene"><span>Dark</span></label>
+              </div>
+            </div>
+            <div class="stage-bottom">
+              <div class="segmented segmented--dark" role="radiogroup" aria-label="Mannequin">
+                <label><input type="radio" name="body-type-stage" value="men" checked autocomplete="off" data-fitting-room-target="bodyType" data-action="fitting-room#changeBodyType"><span>Man</span></label>
+                <label><input type="radio" name="body-type-stage" value="women" autocomplete="off" data-fitting-room-target="bodyType" data-action="fitting-room#changeBodyType"><span>Woman</span></label>
+              </div>
+              <div class="tone-pick" role="radiogroup" aria-label="Body color">
+                <label title="White"><input type="radio" name="tone" value="#f4f2ee" checked autocomplete="off" data-action="fitting-room#changeTone"><span style="background: #f4f2ee" aria-hidden="true"></span><span class="visually-hidden">White</span></label>
+                <label title="Light"><input type="radio" name="tone" value="#ecd0b6" autocomplete="off" data-action="fitting-room#changeTone"><span style="background: #ecd0b6" aria-hidden="true"></span><span class="visually-hidden">Light</span></label>
+                <label title="Medium"><input type="radio" name="tone" value="#cfa07a" autocomplete="off" data-action="fitting-room#changeTone"><span style="background: #cfa07a" aria-hidden="true"></span><span class="visually-hidden">Medium</span></label>
+                <label title="Tan"><input type="radio" name="tone" value="#a8724c" autocomplete="off" data-action="fitting-room#changeTone"><span style="background: #a8724c" aria-hidden="true"></span><span class="visually-hidden">Tan</span></label>
+                <label title="Brown"><input type="radio" name="tone" value="#7c4e31" autocomplete="off" data-action="fitting-room#changeTone"><span style="background: #7c4e31" aria-hidden="true"></span><span class="visually-hidden">Brown</span></label>
+                <label title="Deep"><input type="radio" name="tone" value="#4b2f20" autocomplete="off" data-action="fitting-room#changeTone"><span style="background: #4b2f20" aria-hidden="true"></span><span class="visually-hidden">Deep</span></label>
+              </div>
+            </div>
+            <div class="stage-loading" role="status" aria-live="polite" data-fitting-room-target="loading" hidden>
+              <div class="stage-loading-sweep" aria-hidden="true"></div>
+              <div class="stage-loading-card">
+                <span class="stage-loading-label" data-fitting-room-target="loadingLabel"></span>
+                <span class="stage-loading-track" aria-hidden="true"><i data-fitting-room-target="loadingBar"></i></span>
+                <div class="stage-loading-actions" data-fitting-room-target="loadingActions" hidden>
+                  <button type="button" class="button button--dark" data-action="fitting-room#plainLook">See the fit in plain colour</button>
+                </div>
+              </div>
+            </div>
+            <p class="stage-toast mono" role="status" aria-live="polite" data-fitting-room-target="stageToast" hidden></p>
+            <div class="stage-legend" data-fitting-room-target="legend" hidden>
+              <span><i class="dot dot--good"></i>Fits</span><span><i class="dot dot--tight"></i>Too tight or short</span><span><i class="dot dot--loose"></i>Too loose or long</span>
+            </div>
+            <div class="stage-photos" data-fitting-room-target="stagePhotos"></div>
+          </div>
+          <!-- What the picture shows and how each size fits: under the picture. -->
+          <div class="fit-readout">
+            <p class="stage-note" data-fitting-room-target="stageNote"></p>
+            <div class="warnings" role="alert" data-fitting-room-target="warnings" hidden></div>
+            <div class="results" aria-live="polite" data-fitting-room-target="results"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

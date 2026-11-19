@@ -1,0 +1,390 @@
+// The path-traced still. Once nothing on screen moves and the clothes are on, the figure is drawn again by
+// a path tracer (three-gpu-pathtracer, on the visitor's own GPU through WebGL2): light bouncing between a
+// sleeve and the body, the colour of a jacket on the shirt under it, soft studio shadows, true translucency
+// through thin cloth, from the same lights and studio map the live view uses. It traces as much a frame as the
+// graphics card gets through in about a frame (see step), and is shown, denoised, over the live picture as soon
+// as there are enough samples; as soon as anything moves, it's the live picture again (still.js drives it).
+// The clothes go in as plain maps baked by their own shader (bake.js), the mannequin as it is.
+//
+// Not everywhere: it needs float render targets (WebGL2 with EXT_color_buffer_float), and on a GPU that takes
+// too long over its first sample it gives up for the session; the live view and still.js's averaging stand in.
+// ?trace=off turns it off.
+import * as THREE from "three"
+import { WebGLPathTracer, DenoiseMaterial, ShapedAreaLight } from "three-gpu-pathtracer"
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js"
+import { BAKE_SIZE } from "lib/garments/bake"
+import { RemoteDrape } from "lib/garments/remote_drape"
+import { treeFrom, treeRequest } from "lib/trace_tree"
+
+export const TRACE_ON = typeof location === "undefined" || new URLSearchParams(location.search).get("trace") !== "off"
+// Shown once this many samples are in (denoised, it reads clean from about here); done at SAMPLES_DONE.
+const SAMPLES_SHOW = 8
+const SAMPLES_DONE = 128
+// Fully the traced picture from here (blended with the live one before).
+const SAMPLES_SOLID = 48
+// The picture is traced a tile at a time, this many across and down.
+const TILES = 2
+// About a frame of the card's time (ms): tiles are asked for a frame at a time, as many as it got through in
+// about this long (up to MAX_TILES_A_FRAME), and no more until it's through them (see step).
+const FRAME_GPU_MS = 12
+const MAX_TILES_A_FRAME = 16
+// A first sample slower than this (ms) means a GPU that can't carry it: off for the session.
+// (?tracepatience=ms raises it: the headless harness traces on a software GPU, slowly.)
+const TOO_SLOW_MS = Number(typeof location !== "undefined" && new URLSearchParams(location.search).get("tracepatience")) || 1500
+// The studio's lights as the tracer sees them: discs this far from the figure, this wide (m), so shadows have
+// the soft edge the live view's filtered shadow maps give them.
+const LIGHT_DISTANCE = 4.5, LIGHT_RADIUS = 0.9
+
+// The tracer's tree over its scene is built in a worker (trace_tree.js), one for the page, started when the
+// first still is traced: what the tracer's scene generator asks for a tree (its setBVHWorker), or null where
+// there are no workers or the worker has failed (the tree is then built on the page, as the tracer does by
+// itself). ?tree=page builds it on the page.
+const TREE_IN_WORKER = typeof location === "undefined" || new URLSearchParams(location.search).get("tree") !== "page"
+let trees
+function treeWorker() {
+  if (trees === undefined) {
+    const remote = TREE_IN_WORKER && typeof document !== "undefined" ? RemoteDrape.start(1, "lib/trace_tree") : null
+    let asked = 0
+    trees = remote && {
+      remote,
+      generate(geometry, options) {
+        const { message, transfer } = treeRequest(geometry, options)
+        return remote.ask(`tree:${++asked}`, message, transfer).then(answer => treeFrom(answer, geometry))
+      }
+    }
+  }
+  return trees && !trees.remote.failed ? trees : null
+}
+
+export class TracedStill {
+  constructor(stage) {
+    this.stage = stage
+    this.tracer = null
+    this.scene = null
+    this.key = null
+    this.disabled = !TRACE_ON
+    this.quad = null
+    this.lights = []
+    this.meshes = []
+    // The tiles asked for last, while the card is drawing them: { fence, at, tiles, first, gl }.
+    this.asked = null
+    this.tilesAFrame = 1
+    // The scene being built, while its tree is on the worker (prepare): nothing is traced until it's back.
+    this.building = null
+  }
+
+  // Whether this browser can run it at all.
+  get usable() {
+    if (this.disabled) return false
+    const renderer = this.stage.renderer
+    if (!renderer.capabilities.isWebGL2) return false
+    const gl = renderer.getContext()
+    return Boolean(gl.getExtension("EXT_color_buffer_float"))
+  }
+
+  // Whether there's a still to trace now: the clothes on and settled, laid on and metered, nothing moving.
+  ready() {
+    const stage = this.stage
+    if (!this.usable || !stage.settled || stage.cameraMove || !stage.studioMap) return false
+    const slots = Object.values(stage.slots).filter(Boolean)
+    if (!slots.length) return false
+    for (const d of slots) {
+      if (!d.top.done || d.posing || !d.shown || d.fade) return false
+      if (d.redrapeState && !["done", "off"].includes(d.redrapeState)) return false
+      if (d.top.item.photoCloth && (!d.metered || d.metering)) return false
+    }
+    return true
+  }
+
+  // What the still is of: when it changes, the tracer's scene is built again.
+  contentKey() {
+    const stage = this.stage
+    const parts = [stage.sceneLook, stage.pose, stage.bodyType, JSON.stringify(stage.body ?? null), stage.view, stage.tone ?? ""]
+    for (const [slot, d] of Object.entries(stage.slots)) {
+      if (!d?.top) continue
+      parts.push(slot, d.top.cloth.points.length, d.redrapeState ?? "", JSON.stringify(d.meterGain ?? null), d.top.geometry.attributes.position.version, d.top.geometry.attributes.aPhoto.version, d.top.printImage ? 1 : 0)
+    }
+    return parts.join("|")
+  }
+
+  // Builds (or rebuilds) the tracer's scene for what's on now. Returns false when it couldn't, or can't yet:
+  // the scene's tree is built on a worker (treeWorker), and until it's back there's nothing to trace (the
+  // averaged still stays up: still.js).
+  prepare() {
+    const stage = this.stage, renderer = stage.renderer
+    if (this.building) return false
+    const key = this.contentKey()
+    if (this.tracer && this.key === key) return true
+    try {
+      if (!this.tracer) {
+        this.tracer = new WebGLPathTracer(renderer)
+        this.tracer.renderToCanvas = false
+        this.tracer.tiles.set(TILES, TILES)
+        this.tracer.bounces = 4
+        this.tracer.filterGlossyFactor = 1
+        this.tracer.textureSize.set(BAKE_SIZE, BAKE_SIZE)
+        this.tracer.renderScale = Math.min(1, 1 / renderer.getPixelRatio()) * (renderer.getPixelRatio() > 1 ? 1 : 1)
+        this.tracer.dynamicLowRes = false
+        this.quad = new FullScreenQuad(new DenoiseMaterial({ map: null, blending: THREE.NormalBlending, transparent: true }))
+      }
+      this.clear()
+      const scene = this.scene = new THREE.Scene()
+      scene.environment = stage.studioMap
+      scene.environmentIntensity = stage.scene.environmentIntensity
+      scene.background = null
+      // The mannequin as it stands: a copy of its body, posed and shaped as now (its skin and shape keys
+      // applied here, into plain positions: the tracer's own handling of skinned meshes doesn't take the
+      // live skeleton), in its finish without its shader (its own material hides skin under the model's
+      // clothes with a shader of its own, which the tracer can't read). The model's tailored jacket and coat, when
+      // shown, the same way, with their materials' colour and map.
+      stage.model.updateMatrixWorld(true)
+      for (const object of Object.values(stage.meshes ?? {})) {
+        if (!object?.isMesh || !shown(object)) continue
+        if (object === stage.meshes.body && stage.view === "ghost") continue
+        const geometry = posedGeometry(object)
+        const source = object.material
+        // (The mannequin's finish as the live view has it: the white form's satin, or the skin tone picked. A
+        // fixed white here turned a skin-toned mannequin white once its traced picture came in.)
+        const material = new THREE.MeshPhysicalMaterial(object === stage.meshes.body
+          ? { color: source.color.clone(), roughness: source.roughness, clearcoat: source.clearcoat ?? 0, clearcoatRoughness: source.clearcoatRoughness ?? 0, sheen: source.sheen ?? 0, sheenColor: source.sheenColor?.clone(), metalness: 0, side: THREE.DoubleSide }
+          : { color: source.color?.clone() ?? new THREE.Color(0x888888), map: source.map ?? null, roughness: source.roughness ?? 0.8, metalness: 0, side: THREE.DoubleSide })
+        const copy = new THREE.Mesh(geometry, material)
+        copy.userData.traced = true
+        scene.add(copy)
+        this.meshes.push(copy)
+      }
+      // Each garment as its baked maps on the fine mesh as drawn.
+      for (const [slot, d] of Object.entries(stage.slots)) {
+        if (!d?.top || !d.shown) continue
+        const baked = d.top.bake(renderer, `${key}|${slot}`, BAKE_SIZE)
+        for (const mesh of d.top.tracedMeshes(baked)) {
+          mesh.userData.traced = true
+          scene.add(mesh)
+          this.meshes.push(mesh)
+        }
+      }
+      // The studio's lights as soft discs.
+      for (const light of [stage.key, stage.fill, stage.rim]) {
+        if (!light?.visible || !(light.intensity > 0)) continue
+        const target = light.target?.position ?? new THREE.Vector3(0, 1, 0)
+        const direction = light.position.clone().sub(target).normalize()
+        const disc = new ShapedAreaLight(light.color, 1, LIGHT_RADIUS * 2, LIGHT_RADIUS * 2)
+        disc.isCircular = true
+        // A directional light's intensity is the irradiance it gives; a disc of radiance L this far gives
+        // L times its solid angle: L = E d^2 / (pi r^2).
+        disc.intensity = (light.intensity * LIGHT_DISTANCE * LIGHT_DISTANCE) / (Math.PI * LIGHT_RADIUS * LIGHT_RADIUS)
+        disc.position.copy(target).addScaledVector(direction, LIGHT_DISTANCE)
+        disc.lookAt(target)
+        scene.add(disc)
+        this.lights.push(disc)
+      }
+      scene.updateMatrixWorld(true)
+      const worker = treeWorker()
+      if (worker) {
+        const building = this.building = { key }
+        this.tracer.setBVHWorker(worker)
+        this.tracer.setSceneAsync(scene, stage.camera).then(() => {
+          if (this.building !== building) return
+          this.building = null
+          this.key = key
+          stage.start()
+        }).catch(error => {
+          if (this.building !== building) return
+          // The worker couldn't: the tracer is made again (its generator is left waiting for a tree that
+          // won't come) and builds its tree on the page from now on.
+          console.warn("[trace] the tree's worker:", error)
+          this.building = null
+          this.key = null
+          try { this.tracer?.dispose?.() } catch { /* a tracer that never finished setting up */ }
+          this.tracer = null
+          if (trees) trees.remote.failed ??= String(error)
+          stage.start()
+        })
+        return false
+      }
+      this.tracer.setScene(scene, stage.camera)
+      this.key = key
+      return true
+    } catch (error) {
+      console.warn("[trace] off:", error)
+      this.disable()
+      return false
+    }
+  }
+
+  clear() {
+    // (Only the garments' copies own their geometry and materials; the mannequin's copies share the live ones.)
+    for (const mesh of this.meshes) if (mesh.userData.traced) { mesh.geometry.dispose(); for (const m of [mesh.material].flat()) m.dispose() }
+    this.meshes = []
+    this.lights = []
+    this.scene = null
+  }
+
+  disable() {
+    this.disabled = true
+    this.building = null
+    this.dropFence()
+    this.clear()
+    try { this.tracer?.dispose?.() } catch { /* a tracer that never finished setting up */ }
+    this.tracer = null
+  }
+
+  // Starts over (the camera moved, the content changed): the next step traces from nothing.
+  reset() {
+    if (this.tracer) { this.tracer.updateCamera(); this.tracer.reset() }
+  }
+
+  // Samples traced so far (the tracer's own count is of whole passes over its tiles).
+  get samples() { return this.tracer ? this.tracer.samples : 0 }
+
+  // One frame's worth of tracing, then the still drawn if there's enough. Returns true when it drew.
+  //
+  // Paced by the card, not the page: asking for a tile takes the page a twentieth of a millisecond, drawing it
+  // takes the card hundreds of times that, so a budget of the page's own time (14 ms, as it was) asked for
+  // some 250 quarter-picture tiles a frame, eight seconds of the card's work queued in two frames. That held
+  // up the whole browser, and is long enough for it to take its graphics for hung and reset them: the 3D view
+  // then came back dark (its studio light gone) and then blank. So each frame's tiles are fenced, none are
+  // asked for while the card is still on the last ones, and as many as it got through in about a frame.
+  step() {
+    if (!this.prepare()) return false
+    const tracer = this.tracer
+    if (tracer.samples >= SAMPLES_DONE) return this.show()
+    if (!this.through()) {
+      if (this.disabled) return false
+      this.stage.start()
+      return tracer.samples >= SAMPLES_SHOW ? this.show() : false
+    }
+    const gl = this.stage.renderer.getContext()
+    const before = tracer.samples
+    let tiles = 0
+    try {
+      for (; tiles < this.tilesAFrame && tracer.samples < SAMPLES_DONE; tiles++) tracer.renderSample()
+    } catch (error) {
+      console.warn("[trace] off:", error)
+      this.disable()
+      return false
+    }
+    // (Nothing drawn while the tracer waits out its delay after a reset, or compiles: nothing to wait for.)
+    if (tracer.samples > before) {
+      this.asked = { fence: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0), at: performance.now(), tiles, first: before === 0, gl }
+      gl.flush()
+    }
+    this.stage.start()
+    return tracer.samples >= SAMPLES_SHOW ? this.show() : false
+  }
+
+  // Whether the card is through the tiles asked for last (true when none are out). When it is, how long it took
+  // sets how many are asked for next: one more while it keeps up within about a frame, fewer when it doesn't.
+  through() {
+    const asked = this.asked
+    if (!asked) return true
+    const { gl } = asked
+    const now = performance.now(), took = now - asked.at
+    // (Judged only while it's watched frame by frame: a wait while the page drew nothing, off screen, says
+    // nothing about the card.)
+    const watched = now - (asked.seen ?? asked.at) < 250
+    asked.seen = now
+    // A first sample this slow: a card that can't carry it (off for the session, as before).
+    const slow = watched && asked.first && (took / asked.tiles) * TILES * TILES > TOO_SLOW_MS
+    if (gl.getSyncParameter(asked.fence, gl.SYNC_STATUS) !== gl.SIGNALED) {
+      if (slow) this.tooSlow(took / asked.tiles)
+      return false
+    }
+    this.dropFence()
+    if (slow) { this.tooSlow(took / asked.tiles); return false }
+    // (It's checked once a frame, so a card that kept up still shows about a frame's wait, 8 to 17 ms.)
+    if (watched) {
+      this.tilesAFrame = took <= FRAME_GPU_MS + 17
+        ? Math.min(MAX_TILES_A_FRAME, this.tilesAFrame + 1)
+        : Math.max(1, Math.floor((this.tilesAFrame * (FRAME_GPU_MS + 17)) / took))
+    }
+    return true
+  }
+
+  tooSlow(perTile) {
+    console.info(`[trace] too slow here (${Math.round(perTile * TILES * TILES)} ms a sample): off`)
+    this.disable()
+  }
+
+  dropFence() {
+    const asked = this.asked
+    this.asked = null
+    // (After the context was lost its fence is no longer the context's own: nothing to delete.)
+    try { if (asked && !asked.gl.isContextLost()) asked.gl.deleteSync(asked.fence) } catch { /* as above */ }
+  }
+
+  // The live picture, then the traced one over it (its background is clear, so the backdrop, the floor and
+  // its shadow are the live view's), denoised and tone mapped as the live view is.
+  show() {
+    const { stage, tracer } = this
+    stage.draw()
+    const renderer = stage.renderer
+    const material = this.quad.material
+    material.map = tracer.target.texture
+    material.uniforms.map.value = tracer.target.texture
+    // Faded in over the live picture as the samples come: the live view's detail shows through until the
+    // traced picture has enough samples to carry its own, and the lighting changes gradually rather than
+    // snapping to a smoothed picture.
+    material.opacity = Math.min(1, (tracer.samples - SAMPLES_SHOW + 1) / (SAMPLES_SOLID - SAMPLES_SHOW))
+    // Denoised harder while there are few samples (its reach shrinks as they come in, down to a light touch
+    // at SAMPLES_DONE: the picture's own detail must come through once it's there).
+    // (The threshold is a difference in linear light; a lit cloth's values run to 1 and past it.)
+    const t = Math.min(1, Math.max(0, (tracer.samples - SAMPLES_SHOW) / (SAMPLES_DONE - SAMPLES_SHOW)))
+    // (The threshold is a difference in linear light: on dark cloth every seam is a small one, so it falls
+    // fast with the samples, and the filter's radius with it.)
+    material.sigma = 2.5 - 1.5 * t
+    material.threshold = 0.25 * (1 - t) + 0.03
+    material.kSigma = 1.5 - 0.5 * t
+    const autoClear = renderer.autoClear
+    renderer.autoClear = false
+    renderer.setRenderTarget(null)
+    this.quad.render(renderer)
+    renderer.autoClear = autoClear
+    return true
+  }
+
+  dispose() {
+    this.building = null
+    this.dropFence()
+    this.clear()
+    try { this.tracer?.dispose?.() } catch { /* as above */ }
+    this.quad?.dispose()
+  }
+}
+
+// Whether an object and everything above it is visible.
+function shown(object) {
+  for (let o = object; o; o = o.parent) if (!o.visible) return false
+  return true
+}
+
+// A skinned, morphed mesh's geometry as it stands in the world: positions and normals with its shape keys
+// and bones applied (three.js's own per-vertex evaluation), in world space, with its index.
+function posedGeometry(mesh) {
+  const source = mesh.geometry
+  const count = source.attributes.position.count
+  const position = new Float32Array(3 * count), normal = new Float32Array(3 * count)
+  const v = new THREE.Vector3(), n = new THREE.Vector3()
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)
+  const hasNormal = Boolean(source.attributes.normal)
+  for (let i = 0; i < count; i++) {
+    mesh.getVertexPosition(i, v)
+    v.applyMatrix4(mesh.matrixWorld)
+    position[3 * i] = v.x; position[3 * i + 1] = v.y; position[3 * i + 2] = v.z
+    if (hasNormal) {
+      n.fromBufferAttribute(source.attributes.normal, i)
+      if (mesh.isSkinnedMesh) {
+        // (Skinned normals: through the same bone blend as the position, as three.js's shader does.)
+        n.applyNormalMatrix(normalMatrix).normalize()
+      } else n.applyNormalMatrix(normalMatrix).normalize()
+      normal[3 * i] = n.x; normal[3 * i + 1] = n.y; normal[3 * i + 2] = n.z
+    }
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.BufferAttribute(position, 3))
+  if (source.attributes.uv) geometry.setAttribute("uv", source.attributes.uv.clone())
+  if (source.index) geometry.setIndex(source.index.clone())
+  // Normals from the posed triangles (a skinned normal is bent by the pose; the position's is what we have).
+  geometry.computeVertexNormals()
+  return geometry
+}

@@ -1,0 +1,475 @@
+/* ===== The language of the section pages and the story page =====
+   Two tones, each with the same roles: the wardrobe's wall (by day, and at night) and the garage's dark (Cars'
+   pages: .tone--garage; and the listening room's deep green for Music's: .tone--listening). Names and headlines in Instrument Serif, everything read in DM Sans. A story listed is
+   always the same snippet: a round picture that fades out, its number and date, its headline. Big pictures are
+   plain photographs. Things you can do are thin underlined words (.do); an arrow only means moving (.go). The
+   open story's place in its room catches the light. Nothing is boxed.
+   Anything read at length sits on a sheet of paper (.sheet), with the wall around it and never under the words:
+   a story, the grid, the list. The words are near black on the wall and on the paper (7 to 1 or better).
+   In their rooms the stories are part of the picture: chalked on the board beside the wardrobe (a chalk hand,
+   Caveat and Patrick Hand), in rows on the garage's monitor. Kept apart from outlet.css, whose rules these
+   outrank by naming .tone or coming later. */
+@font-face { font-family: "Instrument Serif"; src: url("/fonts/instrument-serif-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+/* (Offered only up to semi-bold, so nothing anywhere is set heavier than that.) */
+@font-face { font-family: "DM Sans"; src: url("/fonts/dm-sans-latin-wght-normal.woff2") format("woff2"); font-weight: 100 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "Caveat"; src: url("/fonts/caveat-latin-wght-normal.woff2") format("woff2"); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Patrick Hand"; src: url("/fonts/patrick-hand-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+
+/* Every page, the fitting room, the account's pages and the admin's included, is set in the same two faces. */
+:root, body:has(.outlet), .stage-page, .stage-page--wall {
+  --read: "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif; --disp: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font: var(--read); --mono: var(--read);
+}
+body:has(.outlet) {
+  --ink2: #19191b; --body: #222225; --soft: #444347; --name: #4c4b50; --hair: rgb(25 25 27 / 0.13); --under: rgb(25 25 27 / 0.5); --sheet: #fdfcfa;
+  --hand: Caveat, "Patrick Hand", cursive; --note: "Patrick Hand", Caveat, cursive;
+}
+html.is-night body:has(.outlet) { --ink2: #f6f1ea; --body: #ebe6df; --soft: #dedad5; --name: #c9c7cc; --hair: rgb(255 248 241 / 0.2); --under: rgb(255 248 241 / 0.5); --sheet: #37383f; }
+body:has(:is(.tone--garage, .tone--listening)), html.is-night body:has(:is(.tone--garage, .tone--listening)) {
+  --bg: #2b2c2f; --surface: #34353a; --ink: #ebe6df; --muted: #b7b3ad; --line: #46474c; --accent: #ebe6df; color-scheme: dark;
+  --ink2: #f1ece5; --body: #e4dfd8; --soft: #c2beb7; --name: #aeaba5; --hair: rgb(235 230 223 / 0.16); --under: rgb(235 230 223 / 0.5); --sheet: #36373c;
+}
+/* (The listening room's wall is a deep green: the same roles, its own dark.) */
+body:has(.tone--listening), html.is-night body:has(.tone--listening) { --bg: #222824; --surface: #2b322d; --line: #3e4640; --sheet: #2d342f; }
+
+/* ---- the masthead, on every page: plain words, the view you're in underlined */
+.outlet .masthead-link, .outlet .account-nav-link { font: 400 14px/1 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .masthead-more .masthead-link { text-decoration-thickness: 1px; text-underline-offset: 5px; }
+.outlet .masthead-count { font-weight: 500; }
+.outlet .view-switch { border: 0; gap: 26px; }
+.outlet .view-switch-way { gap: 0; min-height: 0; padding: 7px 0; color: var(--soft); background: none; font: 400 14px/1 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .view-switch-way + .view-switch-way { border-left: 0; }
+.outlet .view-switch-way svg { display: none; }
+.outlet .view-switch-way:hover { color: var(--ink2); }
+.outlet .view-switch-way[aria-current="page"] { background: none; color: var(--ink2); box-shadow: 0 1px 0 var(--under); }
+.outlet .view-switch-way:focus-visible { outline: 1px solid var(--under); outline-offset: 4px; }
+@media (max-width: 720px) {
+  /* (Narrow: all three are still named; there are no pictures of them to fall back on.) */
+  .outlet .view-switch { gap: 16px; }
+  .outlet .view-switch-way { padding: 7px 0; }
+  .outlet .view-switch-way:not([aria-current="page"]) .view-switch-name { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+}
+
+/* ---- in the rooms and at the foot of a page: the sections' names, the light switch and the fitting bar, in the same words */
+.outlet .room-label { margin-top: 0; translate: 0 -50%; font: 500 clamp(12px, calc(var(--ph, 660px) * 0.0195), 16px)/1 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .room-count { margin-left: 1px; font-weight: 400; font-variant-numeric: tabular-nums; opacity: 0.72; }
+/* The front page's room fills the window down to the fitting bar (--below: room_controller.js), so nothing is left
+   empty under it; a window taller than the picture shows a closer part of the wardrobe, which a drag slides along. */
+.outlet--front .room.is-live { height: max(clamp(440px, 45vw, 1200px), calc(100svh - var(--below, 116px))); }
+/* A section's room keeps the picture's whole width (the chalkboard is at its edge), and is no taller than the
+   window between the bars above it and the fitting bar (--above, --below). */
+.outlet .room--board.is-live { height: clamp(440px, min(45vw, calc(100svh - var(--above, 118px) - var(--below, 116px))), 1200px); }
+.outlet .room-hint { border-radius: 3px; font: 400 12px/1 var(--read); text-transform: none; }
+.outlet .opening-skip { font: 400 14px/1 var(--read); text-transform: none; letter-spacing: 0; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--under); }
+.outlet .light-switch button { font: 400 13px/1 var(--read); text-transform: none; }
+.outlet .room-light { padding: 2px; border: 0; border-radius: 3px; background: rgb(12 10 8 / 0.38); }
+.outlet .room-light button { min-height: 30px; border-radius: 2px; }
+.outlet .room-light button[aria-pressed="true"] { background: rgb(255 248 241 / 0.18); color: var(--cream); }
+.outlet .dock-title { font: 400 22px/1 var(--disp); letter-spacing: -0.01em; text-transform: none; }
+.outlet .dock:not(.is-open) .dock-title::after { content: ""; }
+.outlet .dock .dock-toggle { font: 400 13px/1 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .dock:not(.is-open) .dock-toggle:hover { text-decoration-thickness: 1px; text-underline-offset: 5px; }
+.outlet .dock:not(.is-open) .outfit .hint { font: 400 13.5px/1.35 var(--read); }
+.outlet .dock:not(.is-open) .rail-name { font: 500 13px/1.15 var(--read); text-transform: none; }
+
+/* ---- the parts */
+.outlet .go { padding: 6px 0; color: var(--ink2); text-decoration: none; font: 400 14px/1 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .go:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--under); }
+.outlet .do { color: var(--ink2); font: 400 14px/1.2 var(--read); letter-spacing: 0; text-transform: none; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--under); }
+.outlet a.do:hover, .outlet a:hover > .do { text-decoration-color: currentColor; }
+.outlet .name { margin: 0; color: var(--name); font: 400 26px/1.1 var(--disp); letter-spacing: -0.01em; text-transform: none; }
+.outlet .pic { display: block; width: 100%; height: 100%; object-fit: cover; background-repeat: no-repeat; }
+.outlet .pic--number { display: grid; place-content: center; background: var(--hair); color: var(--name); font: 400 1.5em/1 var(--disp); }
+.outlet :is(.go, .do, .snippet, .section-tab):focus-visible { outline: 1px solid var(--under); outline-offset: 4px; }
+
+.outlet .snippet { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 0 14px; align-items: center; color: var(--body); text-decoration: none; }
+.outlet .snippet-disc {
+  display: block; aspect-ratio: 1; border-radius: 50%; overflow: hidden; filter: saturate(0.9);
+  -webkit-mask-image: radial-gradient(circle closest-side, #000 74%, rgb(0 0 0 / 0.55) 88%, transparent 100%); mask-image: radial-gradient(circle closest-side, #000 74%, rgb(0 0 0 / 0.55) 88%, transparent 100%);
+}
+.outlet .snippet-disc { width: 68px; font-size: 15px; }
+.outlet .snippet-words { display: block; min-width: 0; }
+.outlet .snippet-meta { display: block; color: var(--soft); font: 400 13px/1.2 var(--read); font-variant-numeric: tabular-nums; }
+.outlet .snippet-line { display: block; margin-top: 4px; font: 400 16px/1.4 var(--read); }
+.outlet .snippet:is(:hover, :focus-visible, .is-lit) { color: var(--ink2); }
+.outlet .snippet:is(:hover, :focus-visible, .is-lit) .snippet-line { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--under); }
+
+/* ---- a section's page: the way back and the sections, then its room across the window */
+.outlet .section-page { padding: 0 0 clamp(40px, 6vw, 80px); }
+.outlet .section-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 28px; padding: 2px var(--gutter) 14px; }
+.outlet .section-bar { justify-content: center; padding: 6px var(--gutter) 16px; }
+.outlet .section-tabs { display: flex; gap: clamp(28px, 4vw, 56px); }
+.outlet .section-tab { padding: 6px 0 8px; font: 400 clamp(22px, 2.2vw, 28px)/1.1 var(--disp); letter-spacing: -0.01em; }
+.outlet .section-tab .room-count { font: 400 14px/1 var(--read); letter-spacing: 0; }
+.outlet .section-tab { padding: 6px 0; color: var(--soft); text-decoration: none; }
+.outlet .section-tab:hover { color: var(--ink2); }
+.outlet .section-tab[aria-current="page"] { color: var(--ink2); box-shadow: 0 1px 0 var(--under); }
+.outlet .section-tab .room-count { opacity: 0.7; }
+/* Under the room: every story of the section, on paper. (The board and the screen show the newest few, and
+   neither can be read in a narrow window.) */
+.outlet .section-list { box-sizing: border-box; width: min(1240px, calc(100% - 2 * var(--gutter))); margin: clamp(28px, 4vw, 48px) auto 0; padding: clamp(24px, 3.4vw, 40px) clamp(20px, 3.6vw, 48px) clamp(26px, 3.6vw, 44px); border-radius: 4px; background: var(--sheet); }
+.outlet .section-list-head { display: flex; justify-content: space-between; align-items: baseline; margin: 0; }
+.outlet .section-list-count, .outlet .section-list-empty { color: var(--soft); font: 400 14px/1.5 var(--read); font-variant-numeric: tabular-nums; }
+.outlet .section-list-empty { margin: 14px 0 0; }
+.outlet .section-list-rows { list-style: none; margin: 22px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px 40px; }
+
+/* ---- the chalkboard beside the wardrobe: held on its slate by room_controller.js, sized by the picture */
+.outlet .room { container-type: inline-size; }
+.outlet .room-board {
+  /* (--unit: the chalk is sized by the board's width, which was 0.192 of the picture when it was first set.) */
+  position: absolute; z-index: 2; width: calc(var(--bw) * 100%); height: calc(var(--bh) * 100%); --unit: calc(100cqw / 1440 * var(--bw) / 0.192);
+  color: #eef0e9; -webkit-user-select: none; user-select: none;
+}
+@container (max-width: 1099px) { .outlet .room-board { display: none; } }
+.outlet .room.is-live .room-board { left: 0 !important; top: 0 !important; width: calc(var(--pw) * var(--bw)); height: calc(var(--ph) * var(--bh)); --unit: calc(var(--pw) / 1440 * var(--bw) / 0.192); will-change: transform; }
+
+/* ---- the whiteboard on its easel: Rising in Fashion in marker, held on the board like the chalk, and bent onto it
+   (room/_easel, easel_controller.js); the whole of it opens Trending */
+.outlet .room-easel { position: absolute; z-index: 2; display: block; width: calc(var(--ew) * 100%); height: calc(var(--eh) * 100%); color: #22252b; text-decoration: none; outline: 0; -webkit-user-select: none; user-select: none; }
+@container (max-width: 1099px) { .outlet .room-easel { display: none; } }
+.outlet .room.is-live .room-easel { left: 0 !important; top: 0 !important; width: calc(var(--pw) * var(--ew)); height: calc(var(--ph) * var(--eh)); will-change: transform; }
+.outlet .easel-writing { position: absolute; left: 0; top: 0; width: 300px; height: 400px; box-sizing: border-box; padding: 22px 24px 14px; display: flex; flex-direction: column; transform-origin: 0 0; opacity: 0.92; pointer-events: none; }
+.outlet .easel-title { font: 700 36px/1 var(--hand); }
+.outlet .easel-underline { display: block; margin: 2px 0; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.outlet .easel-note { font: 400 14.5px/1.25 var(--note); }
+.outlet .easel-rows { display: block; margin-top: 6px; }
+.outlet .easel-row { display: grid; grid-template-columns: 26px 1fr; align-items: baseline; padding: 4px 0 5px; }
+.outlet .easel-place, .outlet .easel-name { font: 700 27px/1 var(--hand); }
+.outlet .easel-name { display: block; }
+.outlet .easel-line { display: block; margin-top: 1px; font: 400 14px/1.15 var(--note); opacity: 0.86; }
+.outlet .easel-foot { display: flex; justify-content: space-between; align-items: baseline; margin-top: auto; font: 400 14px/1.2 var(--note); }
+.outlet .easel-all { font: 700 17px/1 var(--hand); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.outlet .room-easel:is(:hover, :focus-visible) .easel-all { text-decoration-line: underline; }
+.outlet .room-easel:is(:hover, :focus-visible) .easel-writing { opacity: 1; }
+.outlet .room-easel:focus-visible { outline: 2px solid rgb(34 37 43 / 0.5); outline-offset: 4px; }
+/* It opens something, so it says so the room's way: a ring on its corner like every story's, pulsing once as the room
+   opens; a line under it; and pointed at, the light on the whiteboard comes up and the ring grows. */
+.outlet .room-easel { cursor: pointer; }
+.outlet .easel-glow { position: absolute; inset: -16% -22% -10%; background: radial-gradient(closest-side, rgb(255 246 226 / 0.34), rgb(255 246 226 / 0.12) 60%, rgb(255 246 226 / 0)); opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+.outlet .room-easel:is(:hover, :focus-visible) .easel-glow { opacity: 1; }
+.outlet .room-ring.easel-ring { left: auto; right: -8px; top: -8px; animation: easel-ring 1.6s ease-out 1.2s 2 both; }
+.outlet .room-easel:is(:hover, :focus-visible) .easel-ring { transform: scale(1.45); background: rgb(255 255 255 / 0.25); animation: none; }
+@keyframes easel-ring { 0% { box-shadow: 0 0 0 1px rgb(20 14 8 / 0.45), 0 0 0 0 rgb(255 255 255 / 0.7); } 100% { box-shadow: 0 0 0 1px rgb(20 14 8 / 0.45), 0 0 0 16px rgb(255 255 255 / 0); } }
+.outlet .easel-label { position: absolute; left: 50%; top: calc(100% + 14px); translate: -50% 0; white-space: nowrap; color: rgb(246 241 234 / 0.66); font: 400 clamp(11.5px, calc(var(--ph, 660px) * 0.017), 13px)/1 var(--read); letter-spacing: 0.01em; text-shadow: 0 1px 6px rgb(0 0 0 / 0.35); transition: color 0.25s ease; }
+.outlet .room-easel:is(:hover, :focus-visible) .easel-label { color: rgb(246 241 234 / 0.94); }
+@media (prefers-reduced-motion: reduce) { .outlet .room-ring.easel-ring { animation: none; } .outlet .easel-glow { transition: none; } }
+.outlet .chalk {
+  box-sizing: border-box; height: 100%; overflow: hidden; padding: calc(var(--unit) * 12) calc(var(--unit) * 18) calc(var(--unit) * 8);
+  display: grid; align-content: start; gap: calc(var(--unit) * 11) 0; text-shadow: 0 0 1px rgb(255 255 255 / 0.45), 0 0 3px rgb(255 255 255 / 0.12);
+}
+.outlet .chalk-head { display: flex; justify-content: space-between; align-items: baseline; margin: 0; padding-bottom: calc(var(--unit) * 3); }
+.outlet .chalk-name { font: 400 calc(var(--unit) * 40)/1 var(--disp); letter-spacing: -0.01em; opacity: 0.94; }
+.outlet .chalk-count { font: 400 calc(var(--unit) * 13.5)/1 var(--note); opacity: 0.78; }
+.outlet .chalk-entry { display: grid; grid-template-columns: calc(var(--unit) * 54) minmax(0, 1fr); gap: 0 calc(var(--unit) * 14); align-items: center; color: inherit; text-decoration: none; opacity: 0.84; transition: opacity 0.15s ease; outline: 0; }
+.outlet .chalk-entry:is(:hover, :focus-visible, .is-lit) { opacity: 1; }
+.outlet .chalk-print { position: relative; display: block; width: calc(var(--unit) * 54); aspect-ratio: 1; background: #efece4; box-shadow: 0 calc(var(--unit) * 2) calc(var(--unit) * 4) rgb(0 0 0 / 0.38); rotate: -3deg; text-shadow: none; font-size: calc(var(--unit) * 13); }
+.outlet .chalk-entry:nth-of-type(4n + 2) .chalk-print { rotate: 2deg; }
+.outlet .chalk-entry:nth-of-type(4n + 3) .chalk-print { rotate: -1.5deg; }
+.outlet .chalk-entry:nth-of-type(4n) .chalk-print { rotate: 3deg; }
+.outlet .chalk-print::before { content: ""; position: absolute; z-index: 1; left: 31%; top: -9%; width: 39%; height: 17%; background: rgb(236 226 196 / 0.84); rotate: 6deg; }
+.outlet .chalk-print-cut { position: absolute; inset: 5.5%; display: block; overflow: hidden; }
+.outlet .chalk-words { display: block; min-width: 0; }
+.outlet .chalk-meta { display: block; font: 400 calc(var(--unit) * 12.5)/1 var(--note); opacity: 0.78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.outlet .chalk-line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin-top: calc(var(--unit) * 3); font: 600 calc(var(--unit) * 20)/1.04 var(--hand); }
+.outlet .chalk-entry:is(:hover, :focus-visible, .is-lit) .chalk-line { text-decoration: underline; text-decoration-thickness: calc(var(--unit) * 1.5); text-underline-offset: calc(var(--unit) * 3); }
+.outlet .chalk-note { margin: 0; color: inherit; font: 500 calc(var(--unit) * 17)/1.2 var(--hand); opacity: 0.84; }
+.outlet a.chalk-more { justify-self: start; text-decoration: underline; text-decoration-thickness: calc(var(--unit) * 1.5); text-underline-offset: calc(var(--unit) * 3); }
+.outlet a.chalk-more:hover { opacity: 1; }
+/* A story pointed at where it's listed: its piece in the wardrobe catches the light. */
+.outlet .room-spot--story::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: calc(var(--pw, 100cqw) * 0.115); height: calc(var(--ph, 45cqw) * 0.5); translate: -48% -46%;
+  background: radial-gradient(closest-side, rgb(255 247 232 / 0.34), rgb(255 247 232 / 0)); opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+}
+.outlet .room-spot--story[data-section="footwear"]::after { width: calc(var(--pw, 100cqw) * 0.07); height: calc(var(--ph, 45cqw) * 0.16); translate: -50% -55%; }
+.outlet .room-spot--story.is-lit::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .outlet .chalk-entry, .outlet .room-spot--story::after { transition: none; } }
+
+/* ---- the garage: the stories on its monitor, the clock's hands, and a light on each story's place */
+.outlet .garage { margin: 0; background: #2b2c2f; }
+.outlet .garage-clock { position: absolute; aspect-ratio: 1; translate: -50% -50%; overflow: visible; pointer-events: none; filter: blur(0.35px) drop-shadow(0.6px 1.2px 0.8px rgb(0 0 0 / 0.35)); }
+.outlet .garage-clock line { stroke: #18181a; stroke-linecap: round; }
+.outlet .garage-clock-hour { stroke-width: 4; }
+.outlet .garage-clock-minute { stroke-width: 2.8; }
+.outlet .garage-clock circle { fill: #18181a; }
+.outlet .garage-sheet, .outlet .garage-sheet--tag { width: 3%; aspect-ratio: 1; border-radius: 50%; box-shadow: none; }
+.outlet .garage-sheet:is(:hover, :focus-visible), .outlet .garage-sheet.is-lit { box-shadow: none; }
+.outlet .garage-sheet::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 800%; aspect-ratio: 1.15; translate: -44% -36%;
+  background: radial-gradient(closest-side, rgb(255 247 232 / 0.26), rgb(255 247 232 / 0)); mix-blend-mode: screen; opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+}
+.outlet .garage-sheet--note::after { width: 500%; translate: -50% -50%; }
+.outlet .garage-sheet:is(:hover, :focus-visible, .is-lit)::after { opacity: 1; }
+.outlet .garage-sheet:focus-visible { outline: 1px solid rgb(235 230 223 / 0.6); outline-offset: 2px; }
+/* The monitor. On its left the stories' pictures, one after another, each for --turn; over its right a panel with
+   the section's name and a row a story, the row whose picture is showing marked. Pointing at a story (its row, its
+   place in the room, or where it's listed under the room) holds its picture. Sizes are in --unit, a pixel when the
+   picture is 1440 wide. */
+.outlet .garage-screen { position: absolute; box-sizing: border-box; overflow: hidden; --unit: calc(100cqw / 1440); --turn: 6s; border-radius: calc(var(--unit) * 2); color: #d5d0c9; font-family: var(--read); }
+.outlet .screen-shots { position: absolute; inset: 0 40% 0 0; filter: saturate(0.92) brightness(0.94); }
+.outlet .screen-shots::after { content: ""; position: absolute; inset: 0; background: linear-gradient(118deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0) 42%); pointer-events: none; }
+.outlet .screen-shot { position: absolute; inset: 0; opacity: 0; font-size: calc(var(--unit) * 40); }
+.outlet .screen-shot:first-child { opacity: 1; }
+.outlet .garage-screen--2 .screen-shot { animation: screen-2 calc(var(--turn) * 2) calc((var(--i) - 2) * var(--turn)) infinite; }
+.outlet .garage-screen--3 .screen-shot { animation: screen-3 calc(var(--turn) * 3) calc((var(--i) - 3) * var(--turn)) infinite; }
+.outlet .garage-screen--2 .screen-row::before { animation: screen-2 calc(var(--turn) * 2) calc((var(--i) - 2) * var(--turn)) infinite; }
+.outlet .garage-screen--3 .screen-row::before { animation: screen-3 calc(var(--turn) * 3) calc((var(--i) - 3) * var(--turn)) infinite; }
+@keyframes screen-2 { 0%, 44% { opacity: 1; } 50%, 94% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes screen-3 { 0%, 29% { opacity: 1; } 33.3%, 96% { opacity: 0; } 100% { opacity: 1; } }
+.outlet .screen-list {
+  position: absolute; inset: 0 0 0 46%; box-sizing: border-box; display: flex; flex-direction: column; padding: calc(var(--unit) * 9) calc(var(--unit) * 10) calc(var(--unit) * 4) calc(var(--unit) * 34);
+  background: linear-gradient(to right, rgb(15 16 19 / 0), rgb(15 16 19 / 0.9) calc(var(--unit) * 26), rgb(15 16 19 / 0.96) calc(var(--unit) * 40));
+}
+.outlet .screen-head { display: flex; justify-content: space-between; align-items: baseline; margin: 0; padding: 0 0 calc(var(--unit) * 5); }
+.outlet .screen-name { color: #ebe6df; font: 400 calc(var(--unit) * 22)/1.1 var(--disp); letter-spacing: -0.01em; }
+.outlet .screen-count, .outlet .screen-note { color: #b7b3ad; font: 400 calc(var(--unit) * 11)/1.3 var(--read); font-variant-numeric: tabular-nums; }
+.outlet a.screen-count { color: #ebe6df; text-decoration-color: rgb(235 230 223 / 0.4); }
+.outlet .screen-note { margin: calc(var(--unit) * 6) 0 0; font-size: calc(var(--unit) * 12.5); }
+.outlet .screen-row { position: relative; display: block; padding: calc(var(--unit) * 5) 0 calc(var(--unit) * 5) calc(var(--unit) * 10); border-top: 1px solid rgb(235 230 223 / 0.1); color: #d5d0c9; text-decoration: none; outline: 0; }
+.outlet .screen-row::before { content: ""; position: absolute; left: 0; top: calc(var(--unit) * 7); bottom: calc(var(--unit) * 7); width: calc(var(--unit) * 2); border-radius: 1px; background: #ebe6df; opacity: 0; }
+.outlet .screen-row:first-of-type::before { opacity: 1; }
+.outlet .screen-meta { display: block; color: #a8a49e; font: 400 calc(var(--unit) * 10.5)/1.2 var(--read); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.outlet .screen-line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin-top: calc(var(--unit) * 2); font: 400 calc(var(--unit) * 12.5)/1.28 var(--read); }
+.outlet .screen-row:is(:hover, :focus-visible, .is-lit) { color: #fff8f1; }
+.outlet .screen-row:is(:hover, :focus-visible, .is-lit) .screen-line { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: calc(var(--unit) * 3); text-decoration-color: rgb(235 230 223 / 0.45); }
+/* (Under the picture of a car Curb has a record of, what the records find, like a reading on a workshop's screen.) */
+.outlet .screen-record { position: absolute; inset: auto 0 0; display: block; padding: calc(var(--unit) * 22) calc(var(--unit) * 12) calc(var(--unit) * 9); background: linear-gradient(to bottom, rgb(12 13 16 / 0), rgb(12 13 16 / 0.86) 46%); color: #f1ece5; font: 400 calc(var(--unit) * 11.5)/1.25 var(--read); }
+.outlet .screen-record-by { display: block; margin-bottom: calc(var(--unit) * 2); color: #b7b3ad; font-size: calc(var(--unit) * 9.5); }
+@container (max-width: 1099px) { .outlet .screen-record { display: none; } }
+/* (Held: the turning stops, and the story pointed at is the one showing.) */
+.outlet .garage-screen:has(.screen-row:is(:hover, :focus-visible, .is-lit)) .screen-shot { animation: none; opacity: 0; }
+.outlet .garage-screen:has(.screen-row:is(:hover, :focus-visible, .is-lit)) .screen-row::before { animation: none; opacity: 0; }
+.outlet .garage-screen:has(.screen-row:nth-of-type(1):is(:hover, :focus-visible, .is-lit)) .screen-shot:nth-child(1),
+.outlet .garage-screen:has(.screen-row:nth-of-type(2):is(:hover, :focus-visible, .is-lit)) .screen-shot:nth-child(2),
+.outlet .garage-screen:has(.screen-row:nth-of-type(3):is(:hover, :focus-visible, .is-lit)) .screen-shot:nth-child(3),
+.outlet .garage-screen .screen-row:is(:hover, :focus-visible, .is-lit)::before { opacity: 1; }
+/* (Too small to read: the pictures have the whole screen.) */
+@container (max-width: 1099px) { .outlet .screen-list { display: none; } .outlet .screen-shots { inset: 0; } }
+@media (prefers-reduced-motion: reduce) { .outlet .garage-sheet::after, .outlet .poster::after { transition: none; } .outlet .garage-screen :is(.screen-shot, .screen-row)::before, .outlet .garage-screen .screen-shot { animation: none; } }
+
+/* ---- paper: what's read at length sits on a sheet, the wall around it */
+.outlet .sheet { box-sizing: border-box; border-radius: 4px; background: var(--sheet); color: var(--ink2); }
+
+/* ---- a story's page: the way back, then the story on its sheet */
+.outlet .tone .story-page { display: block; max-width: 1312px; margin: 0 auto; padding: 0 var(--gutter) 88px; color: var(--ink2); font-family: var(--read); }
+.outlet .story-way { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 28px; min-height: 52px; }
+.outlet .story-way-on { display: flex; align-items: center; gap: 28px; }
+.outlet .story-way-place { color: var(--soft); font: 400 14px/1 var(--read); font-variant-numeric: tabular-nums; }
+.outlet .tone .story-back { justify-self: auto; padding: 6px 0; color: var(--ink2); font: 400 14px/1 var(--read); text-transform: none; }
+.outlet .tone .story-back:hover { text-decoration-thickness: 1px; text-decoration-color: var(--under); }
+.outlet .story-way .go { font-size: 14px; }
+
+.outlet .tone .story.sheet { max-width: 1040px; margin: 10px auto 0; padding: clamp(36px, 5.6vw, 72px) clamp(20px, 5vw, 64px) clamp(36px, 5vw, 64px); }
+.outlet .story-head { max-width: 780px; margin: 0 auto; text-align: center; }
+.outlet .tone .story-title { margin: 0; color: var(--ink2); font: 400 clamp(38px, 5vw, 68px)/1.04 var(--disp); letter-spacing: -0.01em; text-transform: none; text-wrap: balance; }
+.outlet .tone .story .story-meta { margin: 22px 0 0; color: var(--soft); font: 400 15px/1.3 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .tone .story-figure { margin: clamp(28px, 4vw, 48px) 0 0; }
+.outlet .tone .story-frame { border-radius: 6px; overflow: hidden; }
+/* Its own picture is shown whole, as tall as the window lets it be; a tap on it still lands on the right piece. */
+.outlet .tone .story-figure:not(.story-figure--small) .story-frame { width: fit-content; max-width: 100%; margin: 0 auto; }
+.outlet .tone .story-figure:not(.story-figure--small) .card-tile.card-tile--big { display: block; aspect-ratio: auto; height: auto; min-height: 220px; margin: 0; background: none; }
+.outlet .tone .story-figure:not(.story-figure--small) .card-tile--big img { display: block; width: auto; height: auto; max-width: 100%; max-height: clamp(300px, 64vh, 640px); object-fit: contain; }
+.outlet .tone .story-figure--small { width: min(420px, 100%); margin-left: auto; margin-right: auto; }
+.outlet .tone .story-frame-hanging { background: var(--hair); }
+.outlet .story-frame-cut { display: block; aspect-ratio: 4 / 5; background-repeat: no-repeat; }
+.outlet .tone .card-hint { left: 12px; top: 12px; padding: 8px 11px; border-radius: 3px; background: rgb(24 24 26 / 0.66); color: #f4efe8; font: 400 13px/1 var(--read); text-transform: none; }
+.outlet .tone .story-credit { margin: 12px 0 0; color: var(--soft); font: 400 13px/1.4 var(--read); text-align: center; }
+
+.outlet .story-column { max-width: 662px; margin: clamp(32px, 4.5vw, 56px) auto 0; }
+.outlet .tone .story-standfirst { margin: 0 0 22px; max-width: none; color: var(--ink2); font: 400 21px/1.6 var(--read); }
+.outlet .tone .story-words { margin: 0; padding: 0; border: 0; max-width: none; }
+.outlet .tone .story-text { margin: 0 0 22px; max-width: none; color: var(--body); font: 400 19px/1.75 var(--read); }
+.outlet .tone .story-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px; margin: 30px 0 0; padding: 0; }
+.outlet .tone .story-actions .do { font-size: 16px; text-underline-offset: 5px; }
+.outlet .story-own { padding: 4px 0; border: 0; background: none; cursor: pointer; }
+.outlet .tone .story-try-all { gap: 9px; min-height: 0; padding: 4px 0; background: none; color: var(--ink2); font: 400 16px/1.2 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .tone .story-try-all span { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; text-decoration-color: var(--under); }
+.outlet .tone .story-try-all:is(:hover, :focus-visible) { background: none; color: var(--ink2); }
+.outlet .tone .story-try-all:is(:hover, :focus-visible) span { text-decoration-color: currentColor; }
+.outlet .tone .story-try-all-icon { flex: none; width: 21px; height: 14px; }
+.outlet .story-status { display: flex; gap: 12px; align-items: flex-start; margin: 20px 0 0; padding: 0; color: var(--soft); font: 400 15px/1.55 var(--read); }
+.outlet .story-status strong { color: var(--ink2); font-weight: 500; }
+.outlet .story-status .story-try-all-icon { margin-top: 5px; color: var(--ink2); }
+
+.outlet .tone .story-pieces-title { margin: 56px 0 0; padding-bottom: 12px; color: var(--name); font: 400 22px/1.1 var(--disp); letter-spacing: -0.01em; text-transform: none; }
+.outlet .tone .story-garments { border-top: 1px solid var(--hair); }
+.outlet .tone .story-garment { min-height: 56px; border-bottom: 1px solid var(--hair); color: var(--ink2); }
+.outlet .tone .story-garment-number { color: var(--soft); font: 400 14px/1 var(--read); }
+.outlet .tone .story-garment-name { font: 500 16px/1.3 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .tone .story-garment-kind { color: var(--soft); font: 400 14px/1.2 var(--read); text-transform: none; }
+.outlet .tone .story-garment-do { padding: 4px 0; border: 0; background: none; color: var(--ink2); font: 400 14px/1.2 var(--read); text-transform: none; }
+.outlet .tone .story-garment:is(:hover, :focus-visible) .story-garment-do { background: none; color: var(--ink2); text-decoration-color: currentColor; }
+.outlet .tone .story-garment:focus-visible { outline: 1px solid var(--under); outline-offset: 2px; }
+
+.outlet .tone .story-car { max-width: none; margin: 0; }
+.outlet .tone .story-car-spots { border-top: 1px solid var(--hair); }
+.outlet .tone .story-car-spot { border-bottom: 1px solid var(--hair); }
+.outlet .tone .story-car-part { color: var(--ink2); font: 500 17px/1.3 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .tone .story-car-label { color: var(--soft); font: 400 14px/1.2 var(--read); }
+.outlet .tone .story-car-sign { color: var(--body); font: 400 16px/1.6 var(--read); }
+.outlet .tone .story-car .story-note { margin-top: 16px; }
+
+/* The details come last, in small type: a few facts, a label and a value a row. */
+.outlet .story-details { margin-top: 64px; }
+.outlet .tone .story-details-title { font-size: 22px; }
+.outlet .tone .story-facts { display: block; margin: 14px 0 0; padding: 0; border: 0; border-bottom: 1px solid var(--hair); max-width: none; font-size: inherit; }
+.outlet .story-fact { display: grid; grid-template-columns: minmax(110px, 180px) minmax(0, 1fr); gap: 0 24px; padding: 13px 0; border-top: 1px solid var(--hair); }
+.outlet .tone .story-facts dt { color: var(--soft); font: 400 16.5px/1.5 var(--read); }
+.outlet .tone .story-facts dd { margin: 0; color: var(--ink2); font: 400 16.5px/1.5 var(--read); overflow-wrap: anywhere; }
+.outlet .tone .story-note { margin: 18px 0 0; max-width: none; color: var(--soft); font: 400 14px/1.6 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .tone .story-note .do { font-size: inherit; }
+
+.outlet .story-next { margin-top: 80px; padding-top: 30px; border-top: 1px solid var(--hair); }
+.outlet .story-next-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin: 0; }
+.outlet .story-next-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 56px; margin-top: 26px; }
+@media (max-width: 860px) {
+  .outlet .story-next-list { grid-template-columns: minmax(0, 1fr); }
+  .outlet .story-way-on { gap: 18px; }
+  .outlet .tone .story-text { font-size: 18px; }
+  .outlet .tone .story-standfirst { font-size: 19.5px; }
+  .outlet .story-fact { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
+}
+
+/* ---- the grid and the list: the same names, the same words, on paper */
+.outlet .section-title { margin: 6px 0 16px; color: var(--ink2); font: 400 clamp(40px, 4.6vw, 60px)/1.04 var(--disp); letter-spacing: -0.01em; text-transform: none; }
+.outlet .grid-page, .outlet .list-page { max-width: 1312px; margin: 0 auto; padding: 6px var(--gutter) clamp(48px, 8vw, 96px); }
+.outlet .grid-filters { gap: 4px 26px; padding-bottom: 12px; margin-bottom: 26px; border-bottom: 1px solid var(--hair); }
+.outlet .grid-filter { padding: 7px 0; color: var(--soft); font: 400 15px/1 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .grid-filter:hover { color: var(--ink2); }
+.outlet .grid-filter[aria-current="page"] { color: var(--ink2); box-shadow: 0 1px 0 var(--under); }
+.outlet .grid-filter:focus-visible { outline: 1px solid var(--under); outline-offset: 4px; }
+.outlet .front-grid { gap: 44px clamp(20px, 2.6vw, 40px); padding: clamp(22px, 3.4vw, 44px); border-radius: 4px; background: var(--sheet); }
+.outlet .front-grid > .card:nth-child(n) { margin-top: 0; }
+.outlet .card { gap: 6px; color: var(--ink2); }
+.outlet .card-tile { margin-bottom: 8px; border-radius: 4px; }
+.outlet .card .story-meta { color: var(--soft); font: 400 13px/1.3 var(--read); letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.outlet .card-headline { color: var(--ink2); font: 500 17.5px/1.35 var(--read); letter-spacing: 0; text-transform: none; text-wrap: pretty; }
+.outlet .card-dek { color: var(--soft); font: 400 15px/1.5 var(--read); }
+.outlet .card:hover .card-headline { text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--under); }
+.outlet .card-try { border-radius: 3px; font: 400 12.5px/1 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .tip { color: var(--soft); font: 400 16px/1.6 var(--read); }
+.outlet .list-intro { margin: 0 0 26px; color: var(--soft); font: 400 17px/1.5 var(--read); }
+.outlet .wardrobe-index { gap: 40px clamp(24px, 4vw, 56px); padding: clamp(24px, 3.4vw, 44px); border-radius: 4px; background: var(--sheet); }
+.outlet .wardrobe-index-title { padding-bottom: 12px; border-bottom: 1px solid var(--hair); color: var(--name); font: 400 26px/1.1 var(--disp); letter-spacing: -0.01em; text-transform: none; }
+.outlet .wardrobe-index-title a:hover { text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.outlet .wardrobe-index-count { color: var(--soft); font: 400 15px/1 var(--read); }
+.outlet .wardrobe-index-list li { border-bottom: 1px solid var(--hair); }
+.outlet .wardrobe-index-list a { padding: 13px 0; color: var(--ink2); font: 400 16.5px/1.45 var(--read); letter-spacing: 0; text-transform: none; }
+.outlet .wardrobe-index-list a:hover { text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--under); }
+.outlet .wardrobe-index-number { margin-right: 6px; color: var(--soft); font-size: 14px; }
+@media (max-width: 720px) { .outlet .front-grid > .card:nth-child(n) { margin-top: 0; } }
+
+/* ---- the fitting room, the account's pages and the admin's: the same faces, in sentence case, names in the serif */
+.outlet .fitting-room :not(.wordmark, .wordmark *), .stage-page :not(.stage-wordmark, .side-wordmark, .wordmark, .wordmark *) { text-transform: none !important; letter-spacing: 0 !important; }
+.outlet .fitting-room :is(h1, h2, h3):not(.dock-title), .stage-page :is(h1, h2), .stage-page--wall .split-panel h1 { font-family: var(--disp); font-weight: 400; }
+.outlet .fitting-room :is(h2, h3):not(.dock-title) { font-size: 26px; line-height: 1.1; color: var(--name); }
+.stage-page :is(.page-head h1, .split-panel h1) { font-size: clamp(36px, 3.8vw, 52px); line-height: 1.04; }
+.stage-page .stage-card h2, .stage-page .fit-card-name { font: 400 24px/1.15 var(--disp); }
+.stage-page :is(.mono, .side-group-title, .side-number, .side-count, .stage-tag, .split-art-foot), .stage-table th { font-size: 13px; }
+.stage-page .stage-button { font: 500 14px/1 var(--read); }
+.stage-page .stage-button--small { font-size: 13px; }
+/* (Words that were typed small and shown in capitals now start with one.) */
+.outlet .fitting-room :is(h2, h3, legend, summary, button, .label)::first-letter, .stage-page :is(h1, h2, .mono, .side-group-title, th)::first-letter { text-transform: uppercase; }
+
+/* ---- from one room to the other: the tabs are pages, and the browser carries the picture across (view transitions,
+   through Turbo's <meta name="view-transition">). The room you leave drifts closer and fades; the one you enter
+   settles into place; the rest of the page cross-fades, the wall's colour with it. */
+.outlet .section-page :is(.room, .garage, .listening) { view-transition-name: room; }
+.outlet .section-tabs { view-transition-name: room-tabs; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.55s; }
+::view-transition-group(room) { animation-duration: 0.8s; animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1); }
+::view-transition-old(room) { animation: room-leave 0.8s cubic-bezier(0.3, 0, 0.2, 1) both; }
+::view-transition-new(room) { animation: room-arrive 0.8s cubic-bezier(0.3, 0, 0.2, 1) both; }
+@keyframes room-leave { to { opacity: 0; transform: scale(1.07); filter: blur(5px); } }
+@keyframes room-arrive { from { opacity: 0; transform: scale(0.965); } }
+
+/* From story to story (lib/turns.js). The masthead, a story's way back and the fitting bar stay where they are while
+   the page changes under them. Previous and Next turn the page: the story slides off one way, fading, as the next
+   slides in from the other (data-turn on <html>, "next" or "prev"). A story opened from its picture (a poster, a
+   print, a card, a row) has that picture grow into its own, and it goes back to its place on the way back. */
+.outlet .masthead { view-transition-name: masthead; }
+.outlet .story-way { view-transition-name: story-way; }
+.outlet .dock { view-transition-name: dock; }
+.outlet .story-frame { view-transition-name: story-picture; }
+html[data-turn]::view-transition-old(root) { animation: turn-off 0.42s cubic-bezier(0.4, 0, 0.7, 0.4) both; }
+html[data-turn]::view-transition-new(root) { animation: turn-on 0.56s cubic-bezier(0.15, 0.75, 0.25, 1) 0.06s both; }
+html[data-turn="prev"]::view-transition-old(root) { animation-name: turn-off-back; }
+html[data-turn="prev"]::view-transition-new(root) { animation-name: turn-on-back; }
+@keyframes turn-off { to { opacity: 0; transform: translateX(-56px); } }
+@keyframes turn-on { from { opacity: 0; transform: translateX(72px); } }
+@keyframes turn-off-back { to { opacity: 0; transform: translateX(56px); } }
+@keyframes turn-on-back { from { opacity: 0; transform: translateX(-72px); } }
+html[data-turn]::view-transition-group(story-way) { animation-duration: 0.4s; }
+::view-transition-group(story-picture) { animation-duration: 0.62s; animation-timing-function: cubic-bezier(0.3, 0, 0.15, 1); }
+::view-transition-image-pair(story-picture) { overflow: clip; }
+::view-transition-old(story-picture), ::view-transition-new(story-picture) { width: 100%; height: 100%; object-fit: cover; mix-blend-mode: normal; }
+/* The picture clicked stays under the story's until the story's is in (it may still be loading). */
+::view-transition-old(story-picture) { animation: none; opacity: 1; }
+::view-transition-new(story-picture) { animation: picture-on 0.4s ease 0.18s both; }
+@keyframes picture-on { from { opacity: 0; } }
+::view-transition-group(masthead), ::view-transition-group(dock) { animation-duration: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+
+/* ---- the river: wherever stories are listed to read (under a section's room, at the foot of a story). A row a
+   story: its section and day, the headline in the serif, the line under it, and at the foot what there is to do;
+   its picture beside the words, shown whole. More rows arrive as the page is scrolled (stories/_river). */
+.outlet .section-list-head { padding-bottom: clamp(14px, 1.8vw, 22px); }
+.outlet turbo-frame.river { display: block; }
+.outlet .river-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 38%); gap: 0 clamp(20px, 3.4vw, 56px); padding: clamp(22px, 2.8vw, 34px) 0; border-top: 1px solid var(--hair); color: var(--ink2); text-decoration: none; }
+.outlet .river-words { display: flex; flex-direction: column; min-width: 0; }
+.outlet .river-meta { color: var(--soft); font: 400 14px/1.3 var(--read); font-variant-numeric: tabular-nums; }
+.outlet .river-head { margin-top: 12px; font: 400 clamp(26px, 2.7vw, 38px)/1.1 var(--disp); letter-spacing: -0.01em; text-wrap: balance; }
+.outlet .river-dek { margin-top: 12px; max-width: 34em; color: var(--body); font: 400 clamp(16px, 1.3vw, 18px)/1.55 var(--read); }
+.outlet .river-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; margin-top: auto; padding-top: 22px; }
+.outlet .river-try { color: var(--soft); font: 400 14px/1.2 var(--read); }
+.outlet #story-car-title { scroll-margin-top: 40px; }
+.outlet .river-picture { display: block; align-self: start; aspect-ratio: 4 / 3; border-radius: 3px; overflow: hidden; background: var(--hair); font-size: 34px; }
+.outlet .river-picture--own { background: #f1f0ed; }
+.outlet .river-picture--own .pic { object-fit: contain; }
+/* (In the dark tones the space round a picture shown whole is dark too, not a light card.) */
+body:has(:is(.tone--garage, .tone--listening)) .outlet .river-picture--own { background: rgb(0 0 0 / 0.2); }
+.outlet .river-row:is(:hover, :focus-visible, .is-lit) .do { text-decoration-color: currentColor; }
+.outlet .river-row:focus-visible { outline: 1px solid var(--under); outline-offset: 6px; }
+.outlet .river-more { margin: 0; padding: 26px 0 6px; border-top: 1px solid var(--hair); color: var(--soft); font: 400 15px/1.4 var(--read); text-align: center; }
+.outlet .story-next.sheet { max-width: 1040px; margin: 48px auto 0; padding: clamp(24px, 3.4vw, 40px) clamp(20px, 3.6vw, 48px) clamp(10px, 1.6vw, 18px); border-top: 0; }
+.outlet .story-next .story-next-list { display: block; margin-top: clamp(14px, 1.8vw, 22px); }
+.outlet .view-switch-gap { width: 1px; height: 14px; align-self: center; background: var(--hair); }
+@media (max-width: 720px) {
+  .outlet .river-row { grid-template-columns: minmax(0, 1fr); gap: 16px 0; }
+  .outlet .river-picture { order: -1; }
+}
+
+/* ---- the listening room: the music stories printed on its three posters. A story's picture is multiplied onto the
+   poster's paper, so the lamp over the frame lights it as it lights the paper; its day and headline under it, in
+   ink. Pointing at a story turns its lamp up. Sizes are in --unit, a pixel when the picture is 1440 wide. */
+.outlet .listening { position: relative; width: 100%; margin: 0; background: #1b201d; container-type: inline-size; --unit: calc(100cqw / 1440); }
+.outlet .listening-picture { display: block; width: 100%; height: auto; }
+.outlet .poster { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; margin: 0; padding: calc(var(--unit) * 12) calc(var(--unit) * 12) calc(var(--unit) * 8); overflow: hidden; color: #1a1917; text-decoration: none; outline: 0; }
+.outlet .poster-picture { display: block; flex: none; aspect-ratio: 5 / 4; overflow: hidden; mix-blend-mode: multiply; font-size: calc(var(--unit) * 26); }
+.outlet .poster-words { display: block; margin-top: calc(var(--unit) * 10); }
+.outlet .poster-meta { display: block; color: #45413b; font: 400 calc(var(--unit) * 11)/1.2 var(--read); font-variant-numeric: tabular-nums; }
+.outlet .poster-line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; margin-top: calc(var(--unit) * 4); font: 400 calc(var(--unit) * 17.5)/1.1 var(--disp); letter-spacing: -0.01em; }
+.outlet .poster--note { justify-content: center; color: #45413b; font: 400 calc(var(--unit) * 14)/1.4 var(--read); text-align: center; text-wrap: balance; }
+.outlet .poster::after { content: ""; position: absolute; inset: 0; background: radial-gradient(130% 85% at 50% 0%, rgb(255 238 208 / 0.42), rgb(255 238 208 / 0) 72%); mix-blend-mode: screen; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+.outlet a.poster:is(:hover, :focus-visible, .is-lit)::after { opacity: 1; }
+.outlet a.poster:is(:hover, :focus-visible, .is-lit) .poster-line { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: calc(var(--unit) * 3); text-decoration-color: rgb(26 25 23 / 0.5); }
+.outlet a.poster:focus-visible { outline: 1px solid rgb(235 230 223 / 0.7); outline-offset: 3px; }
+/* (Too small to read: the picture has the whole poster.) */
+@container (max-width: 1099px) {
+  .outlet .poster { padding: 0; }
+  .outlet .poster-words { display: none; }
+  .outlet .poster-picture { flex: 1; aspect-ratio: auto; }
+}
+
+/* ---- from a room down to the page: the foot of its picture fades into the wall, and the paper under it starts
+   over that, so there's no line where the picture stops. */
+.outlet .section-page { --lap: clamp(22px, 3.4vw, 54px); }
+.outlet .section-page :is(.room, .garage, .listening)::after {
+  content: ""; position: absolute; inset: auto 0 0; height: clamp(84px, 11vw, 190px); z-index: 4; pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 0%, transparent), color-mix(in srgb, var(--bg) 22%, transparent) 30%, color-mix(in srgb, var(--bg) 62%, transparent) 62%, var(--bg));
+}
+/* (The wardrobe stands at the foot of its picture: a shorter fade, so its lowest shelf isn't lost; and the light's
+   switch, which is at the room's foot, sits clear of the paper.) */
+.outlet .section-page .room::after { height: calc(var(--lap) + clamp(22px, 2.6vw, 44px)); }
+.outlet .section-page .room .room-light { bottom: calc(var(--lap) + 12px); z-index: 6; }
+.outlet .section-page > .section-list { position: relative; z-index: 5; margin-top: calc(-1 * var(--lap)); box-shadow: 0 -22px 60px -30px rgb(0 0 0 / 0.45); }

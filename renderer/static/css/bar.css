@@ -1,0 +1,65 @@
+/* ===== The bar's faces (shared/_bar_names, lib/bar_faces.js; outlet.css has the bar itself) =====
+   The bar's names are tabs on its top edge: the face shown is joined to the bar, the others beside it, pressed to
+   turn the bar. In the bar, each face has one box, beside what it's showing: a store's link (Your fit, under its
+   mirror's "+ Your photo"), a song (Your sound), a car (Your car); and "Open ↑" at the end. On a wide screen what's
+   in the bar is held to the middle of the page, so nothing is a screen's width from the box. Open, the bar is a
+   room over the page again, its name the title, and the box goes where that face puts it (sound.css, car.css).
+   (This file loads before outlet.css, so its rules start with html.) */
+
+html body:has(.dock) { padding-bottom: calc(116px + 38px); }
+html .outlet .dock:not(.is-open) {
+  padding-left: max(var(--gutter), calc((100% - 1560px) / 2)); padding-right: max(var(--gutter), calc((100% - 1560px) / 2));
+}
+
+/* The tabs. */
+html .outlet .dock:not(.is-open) .dock-names {
+  position: absolute; bottom: 100%; left: max(var(--gutter), calc((100% - 1560px) / 2)); display: flex; gap: 2px; margin: 0;
+}
+html .outlet .dock:not(.is-open) :is(.dock-names .dock-title, .dock-face) {
+  appearance: none; margin: 0; padding: 11px 16px 10px; border: 0; border-radius: 0; background: #2b2926;
+  color: rgb(255 248 241 / 0.68); font: 400 14.5px/1 var(--read); letter-spacing: 0; text-decoration: none; white-space: nowrap;
+}
+html .outlet .dock:not(.is-open) .dock-names .dock-title { background: #141414; color: var(--cream); }
+html .outlet .dock:not(.is-open) .dock-names .dock-title::after { content: none; }
+html .outlet .dock:not(.is-open) .dock-face { cursor: pointer; }
+html .outlet .dock:not(.is-open) .dock-face:is(:hover, :focus-visible) { background: #3a3733; color: var(--cream); }
+html .outlet .dock:not(.is-open) .dock-face:focus-visible { outline: 1px solid rgb(255 248 241 / 0.6); outline-offset: -4px; }
+html .outlet .dock.is-open .dock-face { display: none; }
+
+/* The box, in the bar: a line to type on, and its button in cream. */
+html .outlet .dock:not(.is-open) > .bar-field { grid-area: field; display: block; min-width: 0; margin: 0; }
+html .outlet .dock:not(.is-open) > .bar-field :is(.field-label, .link-samples) { display: none; }
+html .outlet .dock:not(.is-open) > .bar-field .link-row { display: flex; align-items: center; gap: 10px; margin: 0; }
+html .outlet .dock:not(.is-open) > .bar-field .link-row input {
+  flex: 1; min-width: 0; padding: 9px 0; border: 0; border-bottom: 1px solid rgb(255 248 241 / 0.5); border-radius: 0;
+  background: transparent; color: var(--cream); font: 400 15px/1.2 var(--read);
+}
+html .outlet .dock:not(.is-open) > .bar-field .link-row input::placeholder { color: rgb(255 248 241 / 0.5); }
+html .outlet .dock:not(.is-open) > .bar-field .link-row input:focus { outline: 0; border-bottom-color: var(--cream); box-shadow: 0 1px 0 var(--cream); }
+html .outlet .dock:not(.is-open) > .bar-field .link-row .button {
+  flex: none; padding: 10px 16px; border: 1px solid var(--cream); border-radius: 0; background: var(--cream); color: #141414; font: 500 13px/1 var(--read);
+}
+html .outlet .dock:not(.is-open) > .bar-field .link-row .button:hover { background: transparent; color: var(--cream); }
+/* (The fitting room, open, has its own box, with the other ways to add clothes.) */
+html .outlet #fit.dock.is-open > .bar-field { display: none; }
+
+/* "+ Your photo", on the mirror: the photo is what changes the mannequin. */
+html .outlet .dock .bar-photo { display: none; }
+html .outlet .dock:not(.is-open) .fit-panel--results { position: relative; }
+html .outlet .dock:not(.is-open) .bar-photo {
+  display: block; position: absolute; z-index: 5; left: 50%; bottom: 5px; translate: -50% 0; margin: 0; padding: 4px 7px; border: 0;
+  background: rgb(20 20 20 / 0.82); color: var(--cream); font: 400 11px/1 var(--read); white-space: nowrap; cursor: pointer;
+}
+html .outlet .dock:not(.is-open) .bar-photo:is(:hover, :focus-visible) { background: #141414; text-decoration: underline; text-underline-offset: 2px; }
+
+/* What went wrong, said over the bar as it opens a little: in words, on the black, as the rest of the peek is. */
+html .outlet .dock.is-peek .import-error { margin: 0; padding: 0; border: 0; background: none; color: #f1b7a4; font: 400 14px/1.45 var(--read); }
+
+@media (max-width: 720px) {
+  html body:has(.dock) { padding-bottom: calc(92px + 34px); }
+  html .outlet .dock:not(.is-open) .dock-names { left: var(--gutter); }
+  html .outlet .dock:not(.is-open) :is(.dock-names .dock-title, .dock-face) { padding: 9px 12px 8px; font-size: 13px; }
+  /* (Narrow, there's no room for the box in the bar: Your sound and Your car show it when they open a little, and the
+     fitting room has its own. Nor for "+ Your photo" on so small a mirror.) */
+  html .outlet .dock:not(.is-open) > .bar-field, html .outlet .dock:not(.is-open) .bar-photo { display: none; }
+}

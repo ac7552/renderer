@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "renderer"
+version = "0.1.0"
+description = "A fitting room: a 3D mannequin, sewing patterns, cloth simulation and sizing, served as one web page and a JSON API."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+  "beautifulsoup4>=4.12",
+  "lxml>=5.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+renderer = "renderer.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["renderer*"]
+
+[tool.setuptools.package-data]
+renderer = ["data/**/*", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
