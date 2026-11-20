@@ -11,3 +11,5 @@ Each file is saved without its camera metadata (no location, device or date).
 | `polka-dot-mary-janes-angle.png` | Black polka-dot satin Mary Jane heels, red patent strap | Front three-quarter, both shoes |
 | `tan-suede-sock-boots-above.png` | Tan suede pointed-toe stiletto sock boots | From above, both boots |
 | `light-wash-wide-leg-jeans-front.png` | Light-wash wide-leg jeans | Front, laid flat |
+| `olive-corduroy-trousers-front.png` | Olive corduroy slim trousers | Front, laid flat |
+| `light-blue-knit-sweater-front.png` | Light blue chunky-knit crewneck sweater | Front, laid flat |
