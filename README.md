@@ -111,6 +111,7 @@ The code is MIT (see `LICENSE`). What it ships with:
   (`renderer/static/models/CREDITS.md`).
 - Some shoe templates are made from Google Scanned Objects, CC BY 4.0 (`renderer/static/shoes/CREDITS.md`).
 - The typefaces are under the SIL Open Font License (`renderer/static/fonts/`).
+- The reference photos (`tests/fixtures/photos/`) are my own photos of my own clothes and shoes.
 - The tests' listings (`tests/fixtures/sample_listings.json`, `tests/test_garment_import.py`, `tests/test_dress_cut.py`)
   are made up: the brands ("Sample Label", "Sample House"…), product names, colours and style codes are invented,
   and the descriptions keep only the plain garment words the import reads ("Ribbed crew neckline", "Relaxed fit").
