@@ -8,3 +8,6 @@ Each file is saved without its camera metadata (no location, device or date).
 | File | Item | View |
 |---|---|---|
 | `light-blue-pumps-front.png` | Light blue patent pointed-toe pumps | Front, both shoes |
+| `polka-dot-mary-janes-angle.png` | Black polka-dot satin Mary Jane heels, red patent strap | Front three-quarter, both shoes |
+| `tan-suede-sock-boots-above.png` | Tan suede pointed-toe stiletto sock boots | From above, both boots |
+| `light-wash-wide-leg-jeans-front.png` | Light-wash wide-leg jeans | Front, laid flat |
