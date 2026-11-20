@@ -13,3 +13,4 @@ Each file is saved without its camera metadata (no location, device or date).
 | `light-wash-wide-leg-jeans-front.png` | Light-wash wide-leg jeans | Front, laid flat |
 | `olive-corduroy-trousers-front.png` | Olive corduroy slim trousers | Front, laid flat |
 | `light-blue-knit-sweater-front.png` | Light blue chunky-knit crewneck sweater | Front, laid flat |
+| `polka-dot-mini-dress-front.png` | White polka-dot sleeveless mini dress, keyhole tie front | Front, laid flat |
